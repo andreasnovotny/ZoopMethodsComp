@@ -9,25 +9,74 @@ Packages
 ```{r}
 library(tidyverse)
 library(plotly)
-
+library(googledrive)
+library(readxl)
+source("Code/Import_datasets.R")
 '%!in%' <- function(x,y)!('%in%'(x,y))
 ```
 
-Datasets
+Download nessecery data and update from google drive:
+```{r}
+# Confirm authorisation
+drive_auth()
+
+# Update datasets
+update_datasets()
+
+```
+
+# 1. Import and combine Sequence datasets
+
+## COI data components
+```{r}
+
+# Import downloaded rds files
+ASV_COI <- readRDS("Data_import/COI/ASV_COI.rds")
+Samptab_COI <- readRDS("Data_import/COI/Samptab_COI.rds")
+Taxtab_COI <- readRDS("Data_import/COI/Taxtab_COI.rds")
+
+# Combine data components to data frame
+df_COI <- 
+  Taxtab_COI %>%
+  full_join(ASV_COI, by = "ASV") %>%
+  pivot_longer(!1:12, names_to = "Library_ID", values_to = "Abundance") %>%
+  full_join(Samptab_COI, by = "Library_ID")
+```
+
+## 18S data components
 
 ```{r}
-df_18S <- read.delim("ProcessedData/18S_Andreas/18S_Hakai_AN.txt") 
-colnames(df_18S)
+
+# Import downloaded rds files
+ASV_18S <- readRDS("Data_import/18S/ASV_18S.rds")
+Samptab_18S <- readRDS("Data_import/18S/Samptab_18S.rds")
+Taxtab_18S <- readRDS("Data_import/18S/Taxtab_18S.rds")
+
+# Combine data components to data frame
+df_18S <- 
+  Taxtab_18S %>%
+  full_join(ASV_18S, by = "Sequence") %>% 
+  pivot_longer(!1:10, names_to = "Library_ID", values_to = "Abundance") %>% 
+  full_join(Samptab_18S, by = "Library_ID") %>% 
+  filter(is.na(ASV)==FALSE)
+
 df_18S
 ```
 
-Datasets
+## Microscopy data
 
 ```{r}
-df_COI <- read.delim("ProcessedData/COI_Andreas/COI_Hakai_AN.txt") 
-colnames(df_COI)
-df_COI
+df_count_vertical <- read_excel("Data_import/Microscopy/Vertical_ZP_2022.xlsx")
 
+df_count_2017 <- readRDS("Data_import/Microscopy/Hakai_Zooplankton_2013-2017_AN.rds") %>% 
+  mutate(Name = Taxon) %>% 
+  separate(Taxon, sep= " ", into=c("Genus", "Tax1", "Tax2", "Tax3", "Tax4"))
+```
+
+
+Specifying global filterine parameter:
+What phyla are present in Metazoa?
+```{r}
 metazoa <- c("Arthropoda",
              "Cnidaria",
              "Chaetognatha",
@@ -43,212 +92,19 @@ metazoa <- c("Arthropoda",
              "Rotifera",
              "Chordata",
              "Platyhelminthes")
-
-df_COI <- COI_df
 ```
 
-# 1. Exploration
 
-Division Raw
-
-```{r}
-
-plot <- df_18S %>% 
-  filter(Project_name == "Vertical",
-         year(Sample_date) == 2022) %>%
-  group_by(Library_ID) %>% 
-  summarize(Abundance=sum(Abundance),
-            Order, Class, Division) %>% 
-  filter(is.na(Abundance) == FALSE) %>% 
-  ggplot() +
-  geom_bar(aes(Library_ID, Abundance, fill = Division), stat = "identity") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
-
-ggplotly(plot)
-
-```
-
-```{r}
-plot <- df_18S %>% 
-  filter(Project_name == "Vertical",
-         year(Sample_date) == 2022,
-         Division == "Metazoa") %>%
-  group_by(Library_ID) %>% 
-  summarize(Abundance=Abundance/sum(Abundance),
-            Genus) %>% 
-  filter(is.na(Abundance) == FALSE) %>% 
-  ggplot() +
-  geom_bar(aes(Library_ID, Abundance, fill = Genus), stat = "identity") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
-
-ggplotly(plot)
-```
-
-Vertical eDNA
-
-```{r}
-plot <- df_18S %>% 
-  filter(Project_name == "Vertical",
-         year(Sample_date) == 2022,
-         Division == "Metazoa",
-         Sample_type == "eDNA",
-         Genus %in% prev
-         ) %>%
-  group_by(Library_ID) %>% 
-  summarize(Abundance=Abundance/sum(Abundance),
-            Genus, Line_out_depth, Site_ID) %>% 
-  filter(is.na(Abundance) == FALSE) %>%
-  mutate(Depth = factor(Line_out_depth, levels = c(
-    "40", "80", "100", "120", "160"))) %>% 
-  ggplot() +
-  geom_bar(aes(Site_ID, Abundance, fill = Genus), stat = "identity") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-  facet_grid(Depth ~ .)
-
-ggplotly(plot)
-
-```
-
-Vertical Net DNA
-
-```{r}
-prev1 <- c("Calanus",
-          "Paracalanus",
-          "Pseudocalanus",
-          "Euphausia",
-          "Metridia",
-          "Oithona",
-          "Tomopteris",
-          "Meganyctiphanes",
-          "Eucalanus",
-          "Nanomia",
-          "Corycaeus",
-          "Aplysia",
-          "Aglaura",
-          "Crustacea_XX",
-          "Centropages")
-
-prev <- c("Euphausia",
-          "Metridia",
-          "Oithona",
-          "Tomopteris",
-          "Clione",
-          "Eucalanus",
-          "Evadne",
-          "Podon",
-          "Paraeuchaeta"
-)
-
-plot <- df_18S %>% 
-  filter(Project_name == "Vertical",
-         year(Sample_date) == 2022,
-         Division == "Metazoa",
-         Sample_type == "Zp_Net",
-         Genus %in% prev,
-         is.na(Genus) == FALSE
-         ) %>%
-  group_by(Library_ID) %>% 
-  summarize(Abundance=Abundance/sum(Abundance),
-            Genus, Line_out_depth, Site_ID) %>% 
-  filter(is.na(Abundance) == FALSE) %>%
-  mutate(Depth = factor(Line_out_depth, levels = c(
-    "80-0", "120-80", "200-120"
-  ))) %>% 
-  ggplot() +
-  geom_bar(aes(Site_ID, Abundance, fill = Genus), stat = "identity") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-  facet_grid(Depth ~ .)
-
-ggplotly(plot)
-
-
-
-```
-
-# 2. Vertical Comparaison eDNA?index
+# 2. Vertical Comparaison eDNA index
 
 ## 2.1 Zooplankton net samples:
 
-### 18S
-
-```{r}
-Net_18S_index <-
-  df_18S %>% 
-  filter(Project_name == "Vertical",
-         year(Sample_date) == 2022,
-         Division == "Metazoa",
-         Sample_type == "Zp_Net",
-         is.na(Genus) == FALSE,
-         Genus %in% prev) %>% 
-  
-  #sum over genus and remove low counts
-  group_by(Genus, Line_out_depth, Site_ID) %>% 
-  summarise(Abundance = sum(Abundance)) %>%
-  group_by(Genus) %>% 
-  filter(sum(Abundance) > 100) %>% 
-  
-  #relative abundance
-  group_by(Line_out_depth, Site_ID) %>% 
-  reframe(relative_abundance = Abundance / sum(Abundance, na.rm = TRUE),
-          Genus) %>%  
-  #eDNA index
-  group_by(Genus) %>% 
-  reframe(eDNA_index = relative_abundance/max(relative_abundance),
-          Line_out_depth, Site_ID) %>%
-  filter(is.na(eDNA_index) == FALSE) %>% 
-  
-  mutate(Line_out_depth = factor(Line_out_depth, levels = c(
-    "80-0", "120-80", "200-120"))) %>% 
-  mutate(Marker = "18S")
-
-Net_18S_index
- 
-```
-
-### COI
-
-```{r}
-Net_COI_index <- 
-  df_COI %>%
-  filter(Project_name == "Vertical",
-         year(Sample_date) == 2022,
-         phylum %in% metazoa,
-         Sample_type == "Zp_Net",
-         is.na(genus) == FALSE,
-         genus %in% prev) %>%
-  
-  #sum over genus and remove low counts
-  group_by(genus, Line_out_depth, Site_ID) %>% 
-  summarise(Abundance = sum(Abundance)) %>%
-  group_by(genus) %>% 
-  filter(sum(Abundance) > 100) %>% 
-  
-  #relative abundance
-  group_by(Line_out_depth, Site_ID) %>% 
-  reframe(relative_abundance = Abundance / sum(Abundance, na.rm = TRUE),
-          genus) %>%  
-  #eDNA index
-  group_by(genus) %>% 
-  reframe(eDNA_index = relative_abundance/max(relative_abundance),
-          Line_out_depth, Site_ID) %>%
-  filter(is.na(eDNA_index) == FALSE) %>%
-  
-  mutate(Line_out_depth = factor(Line_out_depth, levels = c(
-    "80-0", "120-80", "200-120")),
-    Genus = genus,
-    Marker = "COI") %>% 
-  select(!genus)
-
-Net_COI_index
-```
 ### Microscopy
+
 ```{r}
-ZP_df <- read_excel("ProcessedData/External_Data/ZooplanktonData/Vertical_ZP_2022.xlsx")
-
-net_microscopy_index
   
-
-net_microscopy_index <- ZP_df %>% 
+net_microscopy_index <-
+  df_count_vertical %>% 
   mutate(Abundance=Count*Fraction) %>%
   
   # Summarise all Genus counts per
@@ -275,6 +131,91 @@ net_microscopy_index <- ZP_df %>%
 net_microscopy_index
   
 ```
+```{r}
+counted_taxa_vertical <-
+  net_microscopy_index %>% 
+  pull(Genus) %>% 
+  unique()
+
+counted_taxa_vertical
+```
+
+
+
+### 18S
+
+```{r}
+
+Net_18S_index <-
+  df_18S %>% 
+  filter(Project_name == "Vertical",
+         year(Sample_date) == 2022,
+         Division == "Metazoa",
+         Sample_type == "Zp_Net",
+         is.na(Genus) == FALSE,
+         Genus %in% counted_taxa_vertical) %>% 
+  
+  #sum over genus and remove low counts
+  group_by(Genus, Line_out_depth, Site_ID) %>% 
+  summarise(Abundance = sum(Abundance)) %>%
+  group_by(Genus) %>% 
+  filter(sum(Abundance) > 100) %>% 
+  
+  #relative abundance
+  group_by(Line_out_depth, Site_ID) %>% 
+  reframe(relative_abundance = Abundance / sum(Abundance, na.rm = TRUE),
+          Genus) %>%  
+  #eDNA index
+  group_by(Genus) %>% 
+  reframe(eDNA_index = relative_abundance/max(relative_abundance),
+          Line_out_depth, Site_ID) %>%
+  filter(is.na(eDNA_index) == FALSE) %>% 
+  
+  mutate(Line_out_depth = factor(Line_out_depth, levels = c(
+    "80-0", "120-80", "200-120"))) %>% 
+  mutate(Marker = "18S")
+
+Net_18S_index
+```
+
+### COI
+
+```{r}
+Net_COI_index <- 
+  df_COI %>%
+  filter(Project_name == "Vertical",
+         year(Sample_date) == 2022,
+         phylum %in% metazoa,
+         Sample_type == "Zp_Net",
+         is.na(genus) == FALSE,
+         genus %in% counted_taxa_vertical) %>%
+  
+  #sum over genus and remove low counts
+  group_by(genus, Line_out_depth, Site_ID) %>% 
+  summarise(Abundance = sum(Abundance)) %>%
+  group_by(genus) %>% 
+  filter(sum(Abundance) > 100) %>% 
+  
+  #relative abundance
+  group_by(Line_out_depth, Site_ID) %>% 
+  reframe(relative_abundance = Abundance / sum(Abundance, na.rm = TRUE),
+          genus) %>%  
+  #eDNA index
+  group_by(genus) %>% 
+  reframe(eDNA_index = relative_abundance/max(relative_abundance),
+          Line_out_depth, Site_ID) %>%
+  filter(is.na(eDNA_index) == FALSE) %>%
+  
+  mutate(Line_out_depth = factor(Line_out_depth, levels = c(
+    "80-0", "120-80", "200-120")),
+    Genus = genus,
+    Marker = "COI") %>% 
+  select(!genus)
+
+Net_COI_index
+```
+
+
 
 
 ### Combine and plot:
@@ -294,9 +235,8 @@ comp_plot <-
   labs(title = "Zooplankton Net Samples - Vertical")
 
 comp_plot
-ggsave("Figure_Output/ZPnet_Vertical.pdf")
+ggsave("Figure_output/ZPnet_Vertical.pdf")
 
-  
 ```
 
 ## 2.2 eDNA Samples
@@ -395,9 +335,7 @@ ggsave("Figure_Output/eDNA_vertical.pdf")
 ### Microscopy
 
 ```{r}
-df_count <- readRDS("./ProcessedData/External_Data/Hakai_Zooplankton_2013-2017_AN.rds") %>% 
-  mutate(Name = Taxon) %>% 
-  separate(Taxon, sep= " ", into=c("Genus", "Tax1", "Tax2", "Tax3", "Tax4"))
+
 
 Net_count_index_2017 <-
   df_count %>% 
