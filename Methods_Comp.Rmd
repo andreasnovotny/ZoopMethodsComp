@@ -11,6 +11,7 @@ library(tidyverse)
 library(plotly)
 library(googledrive)
 library(readxl)
+library(phyloseq)
 source("Code/Import_datasets.R")
 '%!in%' <- function(x,y)!('%in%'(x,y))
 ```
@@ -21,7 +22,9 @@ Download nessecery data and update from google drive:
 drive_auth()
 
 # Update datasets
-update_datasets()
+update_DNA_datasets()
+update_ZP_datasets()
+update_Contributed_data()
 
 ```
 
@@ -62,6 +65,13 @@ df_18S <-
 
 df_18S
 ```
+## 18S Time series contributed
+
+```{r}
+df_18S_ts <- readRDS("Data_import/Contributed18S/ps_18S.rds") %>% psmelt()
+```
+
+
 
 ## Microscopy data
 
@@ -131,6 +141,8 @@ net_microscopy_index <-
 net_microscopy_index
   
 ```
+
+
 ```{r}
 counted_taxa_vertical <-
   net_microscopy_index %>% 
@@ -236,7 +248,6 @@ comp_plot <-
 
 comp_plot
 ggsave("Figure_output/ZPnet_Vertical.pdf")
-
 ```
 
 ## 2.2 eDNA Samples
@@ -323,7 +334,7 @@ eDNA_plot <- bind_rows(eDNA_COI_index, eDNA_18S_index) %>%
   labs(title = "eDNA samples")
 
 eDNA_plot
-ggsave("Figure_Output/eDNA_vertical.pdf")
+ggsave("Figure_output/eDNA_vertical.pdf")
 ```
 
 
@@ -335,16 +346,14 @@ ggsave("Figure_Output/eDNA_vertical.pdf")
 ### Microscopy
 
 ```{r}
-
-
 Net_count_index_2017 <-
-  df_count %>% 
+  df_count_2017 %>% 
   filter(Station %in% c("QU39", "QU24")) %>% 
   mutate(Biomass=ifelse(is.na(Biomass), 0, Biomass)) %>% 
   filter(year(Date) == 2017) %>% 
   group_by(Date, Genus) %>%
   #filter(Genus %in% COI_genus) %>% 
-  summarize(Biomass = sum(Biomass),
+  reframe(Biomass = sum(Biomass),
             Depth=as.numeric(DEPTH_STRT)) %>% 
   mutate(Biomass = Biomass*Depth) %>% 
   filter(Biomass > 10) %>% 
@@ -368,18 +377,18 @@ Net_count_index_2017 <-
   
 
 Net_count_index_2017
+
 Net_count_index_2017 %>%
   ggplot() +
   geom_line(aes(Date, RA_Index)) +
   facet_wrap(facets = "Genus")
-  
+```
 
-counted_taxa <- filt_count %>% 
-pull(Genus) %>% unique
 
-counted_genera <- Net_count_index_2017 %>% 
+```{r}
+counted_genera_2017 <- Net_count_index_2017 %>% 
   pull(Genus) %>%  unique
-counted_genera
+counted_genera_2017
 ```
 ### COI
 
@@ -390,7 +399,7 @@ Net_COI_index_2017 <-
          year(Sample_date) == 2017,
          phylum %in% metazoa,
          Sample_type == "Zp_Net",
-         genus %in% counted_genera) %>% 
+         genus %in% counted_genera_2017) %>% 
   
   #sum over genus and remove low counts
   group_by(genus, Sample_date, Site_ID) %>% 
@@ -427,7 +436,7 @@ Net_18S_index_2017 <-
          Division == "Metazoa",
          Sample_type == "Zp_Net",
          is.na(Genus) == FALSE,
-         Genus %in% counted_genera) %>% 
+         Genus %in% counted_genera_2017) %>% 
   
   #sum over genus and remove low counts
   group_by(Genus, Sample_date, Site_ID) %>% 
@@ -465,11 +474,6 @@ Net_18S_index_2017 %>%
 ```{r}
 bind
 
-Net_count_index_2017
-Net_COI_index_2017
-Net_18S_index_2017
-
-
 comp_plot_2017 <-
   bind_rows(Net_count_index_2017,
             Net_COI_index_2017,
@@ -482,7 +486,7 @@ comp_plot_2017 <-
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 
 comp_plot_2017
-ggsave("Figure_Output/ZPnet_Seasonal.pdf")
+ggsave("Figure_output/ZPnet_Seasonal.pdf")
 
 ```
 
@@ -499,7 +503,7 @@ filt_COI <- df_COI %>%
          Sample_type == "eDNA",
          year(Sample_date)==2017,
          phylum %in% metazoa,
-         genus %in% counted_genera) %>% 
+         genus %in% counted_genera_2017) %>% 
   
   #sum over genus and remove low counts
   group_by(genus, Line_out_depth, Sample_date) %>% 
@@ -549,12 +553,11 @@ ggsave("Figure_Output/eDNA_2017.pdf")
 ### 18S
 
 ```{r}
-ps_18S <- readRDS("ProcessedData/18S_Caterina/ps_18S.rds") %>% psmelt()
-
+df_18S_ts
 filt_18S <-
-  ps_18S %>% 
+  df_18S_ts %>% 
   filter(year(collected) == 2017,
-         Genus %in% counted_genera,
+         Genus %in% counted_genera_2017,
          site_id == "QU39") %>% 
   mutate(Sample_date = date(collected)) %>% 
   
