@@ -46,7 +46,7 @@ update_ZP_datasets <- function(repo = "Data_Novotny/ZooplanktonData") {
   
   #################################
   # Download Microscopy data
-  drive_download(file.path(repo, "Vertical_ZP_2022.xlsx"),
+  drive_download(file.path(repo, "Vertical_ZP_count_2022.xlsx"),
                  "Data_import/Microscopy/Vertical_ZP_2022.xlsx",
                  overwrite = TRUE)
   
@@ -54,6 +54,8 @@ update_ZP_datasets <- function(repo = "Data_Novotny/ZooplanktonData") {
                  "Data_import/Microscopy/Hakai_Zooplankton_2013-2017_AN.rds",
                  overwrite = TRUE)
 }
+
+
 
 update_Contributed_data <- function(repo = "Data_Novotny/ContributedDNAprojects") {
   
