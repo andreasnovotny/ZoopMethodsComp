@@ -145,7 +145,7 @@ collapseRAindex <- function(data) {
     
     # Summarising abundance per date, depth and taxa.
     group_by(Date, Taxa, Depth) %>% 
-    summarise(Abundance = sum(Abundance)) %>% 
+    summarise(Abundance = sum(Abundance)) %>%
     
     # Calculate relative abundance (RA) for each samples.
     # Contain taxa and original abundance information.
@@ -153,6 +153,16 @@ collapseRAindex <- function(data) {
     reframe(RA = Abundance/sum(Abundance),
             Taxa, Abundance) %>%
     filter(is.na(RA) == FALSE) %>%
+    
+        
+    #Remove outliers before calculating Index:
+    group_by(Taxa) %>%
+    #filter(RA <= quantile(RA, 0.99)) %>% 
+    reframe(RA = ifelse(RA <= quantile(RA, 0.99), RA, -1),
+            Date, Depth, Abundance) %>%
+    group_by(Taxa) %>%
+    reframe(RA = ifelse(RA == -1, max(RA), RA),
+            Date, Depth, Abundance) %>% 
     
     # Calculate Index for each taxa.
     # Contain depth, date, Abundance and RA information.
@@ -420,7 +430,7 @@ GenusListComp <- list(
 
 ```{r}
 
-PairwiseOverlap <- function(ListComp = SpeciesListComp){
+PairwiseOverlap <- function(ListComp = SpeciesListComp, level = "Species Level"){
   
   order <- c("Net Microscopy", "Net COI", "eDNA COI", "Net 18S", "eDNA 18S")
 
@@ -431,19 +441,27 @@ PairwiseOverlap <- function(ListComp = SpeciesListComp){
     rownames_to_column(var = 'group1') %>% 
     pivot_longer(cols = -group1, names_to = 'group2') %>% 
     mutate(group1 = factor(group1, levels = order),
-           group2 = factor(group2, levels = rev(order))) %>% 
-  
-  ggplot(aes(group1, group2)) +
-    geom_tile(aes(fill = value)) +
-    geom_text(aes(label = value)) +
-    theme_classic() +
-    scale_fill_gradient2(high = scales::muted("red"),
-                         low = scales::muted("white"))
+           group2 = factor(group2, levels = rev(order)),
+           level = level)
 }
 
-PairwiseOverlap(SpeciesListComp)
-PairwiseOverlap(GenusListComp)
 
+
+bind_rows(PairwiseOverlap(SpeciesListComp, "Species Level"),
+          PairwiseOverlap(GenusListComp, "Genus Level")) %>% 
+  ggplot(aes(group1, group2)) +
+  geom_tile(aes(fill = value)) +
+  geom_text(aes(label = value)) +
+  theme_classic() +
+  scale_fill_gradient2(high = scales::muted("red"),
+                       low = scales::muted("white")) +
+  facet_wrap("level") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank())
+  
+  
+ggsave("Figure_output/Pairwise_Overlap.pdf", width = 7, height = 4.5)
 ```
 
 ## Upset plots
@@ -612,10 +630,11 @@ bind_rows(fraction_genus, fraction_species) %>%
   mutate(Level = factor(Level, levels = c("Species level", "Genus level"))) %>% 
   ggplot(aes(Marker, Proportion)) +
   geom_violin() +
-  theme_bw() +
-  facet_wrap("Level")
+  theme_classic() +
+  facet_wrap("Level") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
   
-ggsave("Figure_output/Biomass_fractions.pdf")
+ggsave("Figure_output/Biomass_fractions.pdf", width = 7, height = 4.5)
 ```
 
 **Conclusions:**
@@ -777,14 +796,14 @@ bind_rows(mutate(eDNA_COI_2017_index_genus, marker = "COI"),
   theme_bw() +
   theme_bw() +
   scale_color_gradient2(high = scales::muted("red"),
-                       low = scales::muted("white"))
+                       low = scales::muted("white")) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
   labs(title = "Genus Level eDNA with Vertical Resolution")
 
 ggsave("Figure_output/Seasonal_eDNA_Genus_Comp.pdf", height = 6)
 ```
 
-Outliers:
+## Outliers:
 
 ```{r}
 eDNA_COI_2017_index_genus %>%
@@ -823,15 +842,30 @@ eDNA_COI_2017_index_species %>%
   ggplot() +
   
   geom_point(aes(Date, Depth,
-                 color = RA_Index, size = RA_Index, alpha = RA_Index)) +
+                 color = RA_Index), shape = 15) +
   facet_wrap(facets = "Taxa") +
   theme_bw() +
   theme_bw() +
-  scale_color_viridis_b() +
+  scale_color_gradient2(high = scales::muted("red"),
+                       low = scales::muted("white")) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
   labs(title = "eDNA Vertical at Genus Level")
 
 ggsave("Figure_output/Seasonal_eDNA_Species_Comp.pdf", height = 6)
+```
+
+## Genus level regression
+
+```{r}
+#Combine the three data sets
+bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
+          mutate(Net_COI_2017_index_genus, marker = "COI"),
+          mutate(Net_18S_2017_index_genus, marker = "18S")) %>% 
+  
+  # Filter relevant taxa:
+  filter(Taxa %in% GenusList)
+
+
 ```
 
 ## Plot correlations
@@ -935,7 +969,16 @@ collapseRAindexVert <- function(data) {
     group_by(Date, Depth, Site_ID) %>% 
     reframe(RA = Abundance/sum(Abundance),
             Taxa, Abundance) %>%
-    filter(is.na(RA) == FALSE) %>% 
+    filter(is.na(RA) == FALSE) %>%
+    
+    #Remove outliers before calculating Index:
+    group_by(Taxa) %>%
+    #filter(RA <= quantile(RA, 0.99)) %>% 
+    reframe(RA = ifelse(RA <= quantile(RA, 0.99), RA, -1),
+            Date, Depth, Abundance, Site_ID) %>%
+    group_by(Taxa) %>%
+    reframe(RA = ifelse(RA == -1, max(RA), RA),
+            Date, Depth, Abundance, Site_ID) %>% 
     
     #Calculate Index
     group_by(Taxa) %>%
@@ -1087,6 +1130,8 @@ bind_rows(eDNA_COI_index, eDNA_18S_index) %>%
   labs(title = "eDNA samples")
 
 ggsave("Figure_output/Vertical_eDNA_Genus_Comp.pdf")
+
+eDNA_COI_index
 ```
 
 Compare the two plots:
