@@ -24,6 +24,11 @@ library(eulerr)
 library(ggupset)
 library(plotly)
 library(ggpubr)
+library(ggnewscale)
+
+# Statistical analyses
+library(rjags)
+library(zoib)
 ```
 
 The flowing code will download the needed data sets from Google Drive server and put them in the Data_import directory. Only has to be run once after cloning this directory.
@@ -802,6 +807,63 @@ bind_rows(mutate(eDNA_COI_2017_index_genus, marker = "COI"),
 
 ggsave("Figure_output/Seasonal_eDNA_Genus_Comp.pdf", height = 6)
 ```
+## Comnined plot genus level
+
+
+```{r}
+eDNA <- bind_rows(mutate(eDNA_COI_2017_index_genus, marker = "COI"),
+                  mutate(eDNA_18S_2017_index_genus, marker = "18S",
+                         Depth = as.character(Depth))) %>% 
+  
+  group_by(Taxa, Date, Depth) %>% 
+  summarize(RA_Index = mean(RA_Index),
+            Abundance = mean(Abundance),
+            marker = "eDNA")
+
+data <-  eDNA %>%
+  bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
+             mutate(Net_COI_2017_index_genus, marker = "COI"),
+             mutate(Net_18S_2017_index_genus, marker = "18S"),
+            tibble(marker = "_", Date = ymd("2017-01-01"),
+                         RA_Index = 0, Taxa = "Acartia")) %>% 
+
+  filter(Taxa %in% GenusList,
+         Taxa %in% pull(eDNA, Taxa)) %>% 
+  
+  mutate(y = ifelse(marker == "eDNA", Depth, marker),
+         y = factor(y, levels = rev(c("Count", "COI", "18S", "_", "0", "5", "30", "100", "260"))))
+ 
+data
+ 
+data %>% ggplot() +
+  geom_point(
+    aes(Date, y, color = RA_Index),
+    #filter(data, y %!in% c("Count", "COI")),
+    shape = 15) +
+  facet_wrap(facets = "Taxa") +
+  scale_color_gradient2(high = scales::muted("red"),
+                       low = scales::muted("white")) +
+  
+  new_scale_color() +
+  
+  geom_point(
+    aes(Date, y, color = RA_Index),
+    filter(data, y %in% c("Count", "COI", "18S")),
+    shape = 15) +
+  facet_wrap(facets = "Taxa") +
+  scale_color_gradient2(high = scales::muted("blue"),
+                       low = scales::muted("white")) +
+  
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(title = "eDNA Vertical at Genus Level")
+
+ggsave("Figure_output/Seasonal_combined_Species_Comp.pdf", height = 6)
+
+```
+
+
+
 
 ## Outliers:
 
@@ -831,7 +893,52 @@ bind_rows(mutate(Net_count_2017_index_species, marker = "Count"),
 ggsave("Figure_output/Seasonal_Net_Species_Comp.pdf")
 ```
 
+
+## Comnined plot species level
+
+
+```{r}
+data <- bind_rows(mutate(Net_count_2017_index_species, marker = "Count"),
+                  mutate(Net_COI_2017_index_species, marker = "COI"),
+                  mutate(eDNA_COI_2017_index_species, marker = "eDNA"),
+                  tibble(marker = "_", Date = ymd("2017-01-01"),
+                         RA_Index = 0, Taxa = "Acartia longiremis")) %>% 
+  filter(Taxa %in% SpeciesList,
+         Taxa %in% pull(eDNA_COI_2017_index_species, Taxa)) %>% 
+  mutate(y = ifelse(marker == "eDNA", Depth, marker),
+         y = factor(y, levels = rev(c("Count", "COI", "_", "0", "5", "30", "100", "260"))))
+  
+data %>% ggplot() +
+  geom_point(
+    aes(Date, y, color = RA_Index),
+    #filter(data, y %!in% c("Count", "COI")),
+    shape = 15) +
+  facet_wrap(facets = "Taxa") +
+  scale_color_gradient2(high = scales::muted("red"),
+                       low = scales::muted("white")) +
+  
+  new_scale_color() +
+  
+  geom_point(
+    aes(Date, y, color = RA_Index),
+    filter(data, y %in% c("Count", "COI")),
+    shape = 15) +
+  facet_wrap(facets = "Taxa") +
+  scale_color_gradient2(high = scales::muted("blue"),
+                       low = scales::muted("white")) +
+  
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(title = "eDNA Vertical at Genus Level")
+
+ggsave("Figure_output/Seasonal_combined_Species_Comp.pdf", height = 6)
+
+```
+
 eDNA (COI only)
+
+
+
 
 ```{r}
 
@@ -852,6 +959,87 @@ eDNA_COI_2017_index_species %>%
   labs(title = "eDNA Vertical at Genus Level")
 
 ggsave("Figure_output/Seasonal_eDNA_Species_Comp.pdf", height = 6)
+```
+
+## Test: ZOIB package
+
+The ZOIB R package is used for zero or one inflated B-regressions. It is a bayesian MCMC approach that builds on the JAGS sampler.\
+\
+
+```{r}
+
+library(zoib)
+data("BiRepeated", package = "zoib")
+data
+eg2 <- zoib(y1|y2 ~ x|1|x, data=BiRepeated,  random=1, EUID=BiRepeated$id,
+            zero.inflation=FALSE, one.inflation=FALSE, prior.Sigma="UN.unif",
+            n.iter=7000,n.thin=25,n.burn=2000)
+post.sample <- eg2$oripara; summary(post.sample)
+
+
+
+
+library(zoib)
+library(betareg)
+data("GasolineYield", package = "zoib")
+GasolineYield$batch <- as.factor(GasolineYield$batch)
+
+gy  <- betareg(yield ~ temp + batch, data = GasolineYield)
+summary(gy)$coeff
+
+d <- GasolineYield
+eg1.fixed <- zoib(yield ~ temp + as.factor(batch)| 1, data=GasolineYield, joint = FALSE,
+random = 0, EUID = 1:nrow(d), zero.inflation = FALSE, one.inflation = FALSE, n.iter = 1050, n.thin = 5, n.burn=50)
+
+eg1.fixed
+sample1 <- eg1.fixed$coeff
+sample1
+traceplot(sample1);  autocorr.plot(sample1);  gelman.diag(sample1)
+d
+```
+
+```{r}
+data("AlcoholUse", package = "zoib")
+
+AlcoholUse
+```
+
+```{r}
+options(digits = 4)
+
+## Section 4 from Ferrari and Cribari-Neto (2004)
+data("GasolineYield", package = "betareg")
+data("FoodExpenditure", package = "betareg")
+GasolineYield
+
+
+## Table 1
+gy <- betareg(yield ~ batch + temp, data = GasolineYield)
+summary(gy)
+
+## Table 2
+fe_lin <- lm(I(food/income) ~ income + persons, data = FoodExpenditure)
+library("lmtest")
+bptest(fe_lin)
+fe_beta <- betareg(I(food/income) ~ income + persons, data = FoodExpenditure)
+summary(fe_beta)
+
+## nested model comparisons via Wald and LR tests
+fe_beta2 <- betareg(I(food/income) ~ income, data = FoodExpenditure)
+lrtest(fe_beta, fe_beta2)
+waldtest(fe_beta, fe_beta2)
+
+
+## Section 3 from online supplements to Simas et al. (2010)
+## mean model as in gy above
+## precision model with regressor temp
+gy2 <- betareg(yield ~ batch + temp | temp, data = GasolineYield)
+
+## MLE column in Table 19
+summary(gy2)
+
+## LRT row in Table 18
+lrtest(gy, gy2)
 ```
 
 ## Genus level regression
@@ -892,10 +1080,34 @@ bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
   geom_smooth(method = lm) +
   #facet_wrap(facets = "Taxa") +
   theme_bw() +
-  ylim(0, 1)
-
+  ylim(0, 1) +
+  facet_wrap("Taxa")
   
+ d <- left_join(
+    Net_count_2017_index_genus,
+    Net_COI_2017_index_genus,
+    by = c("Taxa", "Date"),
+    suffix = c(".count", ".COI")) %>%
+  filter(Taxa %in% GenusList,
+         is.na(RA_Index.COI) == FALSE,
+         is.na(RA_Index.count) == FALSE,
+         RA_Index.COI < 1)
+ 
+ d
+ 
+lm(RA_Index.COI ~ RA_Index.count + Taxa, data = d) %>% 
+  summary()
 
+zoib(RA_Index.COI ~ RA_Index.count, data = d)
+
+betareg(RA_Index.COI ~ RA_Index.count + Taxa, data = d) %>% 
+  summary()
+
+d
+```
+
+
+```{r}
 #### Count/COI Residual Plot
   
 left_join(Net_count_2017_index_genus,
