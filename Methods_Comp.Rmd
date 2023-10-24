@@ -29,6 +29,7 @@ library(ggnewscale)
 # Statistical analyses
 library(rjags)
 library(zoib)
+library(vegan)
 ```
 
 The flowing code will download the needed data sets from Google Drive server and put them in the Data_import directory. Only has to be run once after cloning this directory.
@@ -136,6 +137,18 @@ In this section the different data formats of the 2017 QU39 time series will be 
 The following function will calculate relative abundance and the index of relative abundance (RA_Index) for any data set. The RA_Index is identical to eDNA Index, but as other data types than eDNA is used here, we choose to give the index a more generic name. The functions are specific for the given analysis workflow and are not meant to be exported.
 
 ```{r}
+
+#function to calculate eDNA index
+eDNAINDEX <- function(x) { #where x is a dataframe with taxa/OTUs/etc in rows, and samples in columns
+  rowMax <- function(x){apply(x, MARGIN = 1, FUN = max)}
+  temp <- sweep(x, MARGIN = 2, STATS = colSums(x), FUN = "/") #create proportion for each taxon/OTU within each sample
+  sweep(temp, MARGIN = 1, STATS = rowMax(temp), FUN = "/")
+}
+
+
+
+
+
 collapseRAindex <- function(data) {
   
   # This function requires a data frame that contains at least the following parameters:
@@ -227,16 +240,16 @@ getGenusList <- function(data, type="DNA") {
   # This function require the output of "collapseRAindex" function.
   
   # Prefiltration for DNA data.
-  # An initial filtering step will remov any low observation.
+  # An initial filtering step will remove any low observation.
   if (type == "DNA") {data <- filter(data, Abundance > 50)}
   
   List <- data %>%
   
     # Remove low occurrences
-    # Each genus has to be observed in more than 2 samples.
+    # Each genus has to be observed in more than 5 samples.
     filter(RA_Index > 0) %>% 
     group_by(Taxa) %>%
-    filter(n() > 2) %>%
+    filter(n() > 5) %>%
     
     # Remove bad genus names
     # The following name patterns indicate that genus level identification failed. 
@@ -781,6 +794,32 @@ bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
 
 ggsave("Figure_output/Seasonal_Net_Genus_Comp.pdf")
 ```
+```{r}
+#Combine the three data sets
+bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
+          mutate(Net_COI_2017_index_genus, marker = "COI"),
+          mutate(Net_18S_2017_index_genus, marker = "18S")) %>% 
+  
+  # Filter relevant taxa:
+  filter(Taxa %in% GenusList) %>%
+  
+  # Plot
+  ggplot() +
+  geom_line(aes(Date, RA, color = marker)) +
+  facet_wrap(facets = "Taxa", scales = "free_y") +
+  theme_bw() +
+  labs(title = "Genus Level Zooplankton-Net Marker Comparison") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggsave("Figure_output/Seasonal_Net_Genus_Comp.pdf")
+```
+
+
+
+
+
+
+
 
 RA_index of eDNA samples, the average of 18S and COI.
 
@@ -807,8 +846,8 @@ bind_rows(mutate(eDNA_COI_2017_index_genus, marker = "COI"),
 
 ggsave("Figure_output/Seasonal_eDNA_Genus_Comp.pdf", height = 6)
 ```
-## Comnined plot genus level
 
+## Comnined plot genus level
 
 ```{r}
 eDNA <- bind_rows(mutate(eDNA_COI_2017_index_genus, marker = "COI"),
@@ -856,14 +895,11 @@ data %>% ggplot() +
   
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-  labs(title = "eDNA Vertical at Genus Level")
+  labs(title = "Genus level temporal comparison")
 
 ggsave("Figure_output/Seasonal_combined_Species_Comp.pdf", height = 6)
 
 ```
-
-
-
 
 ## Outliers:
 
@@ -874,6 +910,15 @@ eDNA_COI_2017_index_genus %>%
   ggplot(aes(x = RA_Index)) +
   geom_histogram(bins = 100L) +
   facet_wrap(facets = "Taxa")
+
+Net_COI_2017_index_genus %>%
+  filter(Taxa %in% GenusList,
+         Abundance > 0) %>%
+  group_by(Taxa) %>% 
+  summarise(median = median(Abundance),
+            mean = mean(Abundance))
+
+eDNA_COI_2017_index_genus
 ```
 
 ## Species level comparison
@@ -893,9 +938,7 @@ bind_rows(mutate(Net_count_2017_index_species, marker = "Count"),
 ggsave("Figure_output/Seasonal_Net_Species_Comp.pdf")
 ```
 
-
 ## Comnined plot species level
-
 
 ```{r}
 data <- bind_rows(mutate(Net_count_2017_index_species, marker = "Count"),
@@ -929,16 +972,13 @@ data %>% ggplot() +
   
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-  labs(title = "eDNA Vertical at Genus Level")
+  labs(title = "Species level temporal comparison")
 
 ggsave("Figure_output/Seasonal_combined_Species_Comp.pdf", height = 6)
 
 ```
 
 eDNA (COI only)
-
-
-
 
 ```{r}
 
@@ -959,87 +999,6 @@ eDNA_COI_2017_index_species %>%
   labs(title = "eDNA Vertical at Genus Level")
 
 ggsave("Figure_output/Seasonal_eDNA_Species_Comp.pdf", height = 6)
-```
-
-## Test: ZOIB package
-
-The ZOIB R package is used for zero or one inflated B-regressions. It is a bayesian MCMC approach that builds on the JAGS sampler.\
-\
-
-```{r}
-
-library(zoib)
-data("BiRepeated", package = "zoib")
-data
-eg2 <- zoib(y1|y2 ~ x|1|x, data=BiRepeated,  random=1, EUID=BiRepeated$id,
-            zero.inflation=FALSE, one.inflation=FALSE, prior.Sigma="UN.unif",
-            n.iter=7000,n.thin=25,n.burn=2000)
-post.sample <- eg2$oripara; summary(post.sample)
-
-
-
-
-library(zoib)
-library(betareg)
-data("GasolineYield", package = "zoib")
-GasolineYield$batch <- as.factor(GasolineYield$batch)
-
-gy  <- betareg(yield ~ temp + batch, data = GasolineYield)
-summary(gy)$coeff
-
-d <- GasolineYield
-eg1.fixed <- zoib(yield ~ temp + as.factor(batch)| 1, data=GasolineYield, joint = FALSE,
-random = 0, EUID = 1:nrow(d), zero.inflation = FALSE, one.inflation = FALSE, n.iter = 1050, n.thin = 5, n.burn=50)
-
-eg1.fixed
-sample1 <- eg1.fixed$coeff
-sample1
-traceplot(sample1);  autocorr.plot(sample1);  gelman.diag(sample1)
-d
-```
-
-```{r}
-data("AlcoholUse", package = "zoib")
-
-AlcoholUse
-```
-
-```{r}
-options(digits = 4)
-
-## Section 4 from Ferrari and Cribari-Neto (2004)
-data("GasolineYield", package = "betareg")
-data("FoodExpenditure", package = "betareg")
-GasolineYield
-
-
-## Table 1
-gy <- betareg(yield ~ batch + temp, data = GasolineYield)
-summary(gy)
-
-## Table 2
-fe_lin <- lm(I(food/income) ~ income + persons, data = FoodExpenditure)
-library("lmtest")
-bptest(fe_lin)
-fe_beta <- betareg(I(food/income) ~ income + persons, data = FoodExpenditure)
-summary(fe_beta)
-
-## nested model comparisons via Wald and LR tests
-fe_beta2 <- betareg(I(food/income) ~ income, data = FoodExpenditure)
-lrtest(fe_beta, fe_beta2)
-waldtest(fe_beta, fe_beta2)
-
-
-## Section 3 from online supplements to Simas et al. (2010)
-## mean model as in gy above
-## precision model with regressor temp
-gy2 <- betareg(yield ~ batch + temp | temp, data = GasolineYield)
-
-## MLE column in Table 19
-summary(gy2)
-
-## LRT row in Table 18
-lrtest(gy, gy2)
 ```
 
 ## Genus level regression
@@ -1087,24 +1046,351 @@ bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
     Net_count_2017_index_genus,
     Net_COI_2017_index_genus,
     by = c("Taxa", "Date"),
-    suffix = c(".count", ".COI")) %>%
-  filter(Taxa %in% GenusList,
-         is.na(RA_Index.COI) == FALSE,
-         is.na(RA_Index.count) == FALSE,
-         RA_Index.COI < 1)
- 
+    suffix = c(".count", ".COI"))
  d
  
-lm(RA_Index.COI ~ RA_Index.count + Taxa, data = d) %>% 
-  summary()
+ logit <- function(p) { log(p/(1-p)) }
+ 
+
+
+
+  
+lm(logit(RA_Index.COI) ~ logit(RA_Index.count) + Taxa, data = d)
 
 zoib(RA_Index.COI ~ RA_Index.count, data = d)
 
-betareg(RA_Index.COI ~ RA_Index.count + Taxa, data = d) %>% 
-  summary()
-
-d
+betareg(RA_Index.COI ~ RA_Index.count + Taxa, data = d)
 ```
+
+## lm count corrections
+
+```{r}
+# Compile dataset for comparison:
+
+
+comp.d <- left_join(
+    Net_count_2017_index_genus,
+    Net_COI_2017_index_genus,
+    by = c("Taxa", "Date"),
+    suffix = c(".count", ".COI")) %>%
+  filter(Taxa %in% GenusList) %>% 
+  mutate(RA.count.sq = RA.count^0.5,
+         RA.COI.sq = RA.COI^0.5) %>% 
+  filter(is.na(RA.COI.sq) == FALSE,
+         is.na(RA.count.sq) == FALSE)
+comp.d
+  
+# Compare original regression slopes with eDNA index regresson slopes:
+comp.d %>%
+  ggplot() +
+  geom_point(aes(RA.count, RA.COI), color = "blue") +
+  geom_smooth(aes(RA.count, RA.COI), method = lm, color = "blue") +
+  geom_point(aes(RA_Index.count, RA_Index.COI), color = "red") +
+  geom_smooth(aes(RA_Index.count, RA_Index.COI), method = lm, color = "red") +
+  #facet_wrap(facets = "Taxa") +
+  theme_bw() +
+  ylim(0, 1) +
+  facet_wrap("Taxa") +
+  geom_abline(slope = 1)
+
+# Original slopes only.
+comp.d %>%
+  ggplot() +
+  geom_point(aes(RA.count, RA.COI), color = "blue") +
+  geom_smooth(aes(RA.count, RA.COI), method = lm, color = "blue") +
+  #facet_wrap(facets = "Taxa") +
+  theme_bw() +
+  ylim(0, 1) +
+  facet_wrap("Taxa", scales = "free_y") +
+  geom_abline(slope = 1)
+```
+
+```{r}
+#Create new tables for regression summary and calculate coefficients 
+species_list <- data.frame(Taxa = unique(comp.d$Taxa),
+                           RA_Rsq = 0,
+                           I_Rsq = 0,
+                           
+                           RA_p.val = 0,
+                           I_p.val = 0,
+                           
+                           RA_B0 = 0,
+                           I_B0 = 0,
+                           
+                           RA_slope = 0,
+                           I_slope = 0)
+species_list
+
+for(i in 1:length(species_list$Taxa)){ #Start of loop
+  data=comp.d[comp.d$Taxa == species_list$Taxa[i],]
+  lm1 <- lm(RA.count.sq ~ RA.COI.sq, data = data)
+  lm2 <- lm(sqrt(RA_Index.count) ~ sqrt(RA_Index.COI), data = data)
+  species_list$RA_Rsq[i] <- summary(lm1)$adj.r.squared
+  species_list$RA_p.val[i] <- summary(lm1)$coefficients[2,4]
+  species_list$RA_B0[i] <- lm1$coefficients[1]
+  species_list$RA_slope[i] <- lm1$coefficients[2]
+  species_list$I_Rsq[i] <- summary(lm2)$adj.r.squared
+  species_list$I_p.val[i] <- summary(lm2)$coefficients[2,4]
+  species_list$I_B0[i] <- lm2$coefficients[1]
+  species_list$I_slope[i] <- lm2$coefficients[2]
+}
+
+species_list
+```
+Full regression
+
+```{r}
+
+lmT <- lm(RA.count.sq ~ RA.COI.sq + Taxa, data = comp.d)
+lmT <- lm(sqrt(RA_Index.count) ~ sqrt(RA_Index.COI) + Taxa, data = comp.d)
+summary(lmT)
+
+
+plot(lmT)
+comp.d %>% 
+  ggplot() +
+  geom_point(aes(RA.count, RA.COI), color = "blue") +
+  geom_smooth(aes(RA.count, RA.COI), method = lm, color = "blue") +
+  geom_point(aes(RA_Index.count, RA_Index.COI), color = "red") +
+  geom_smooth(aes(RA_Index.count, RA_Index.COI), method = lm, color = "red") +
+  #facet_wrap(facets = "Taxa") +
+  theme_bw() +
+  ylim(0, 1) +
+  geom_abline(slope = 1)
+```
+
+The R2 and P values are identical for RA and Index regressions. Only improvement of slopes.
+
+Also, R2 is linearly correlated with the slope....
+
+```{r}
+p <- species_list %>% 
+  ggplot() +
+  geom_point(aes(I_slope, RA_Rsq, color = Taxa))
+ggplotly(p)
+```
+
+Slope correction
+
+```{r}
+slope_corr <- comp.d %>%
+  group_by(Taxa) %>% 
+  summarise(max_contribution = mean(RA.count)) %>% 
+  arrange(desc(max_contribution)) %>% 
+  left_join(species_list, by = "Taxa") %>% 
+  left_join(comp.d, by = "Taxa") %>% 
+  group_by(Date) %>% 
+  mutate(Abundance.COI.adj = 
+           ifelse(RA_p.val < 0.05 & RA_Rsq > 0.3,
+                  ((RA_slope^2)*(sum(Abundance.COI)*Abundance.COI-Abundance.COI^2)) / 
+                    (sum(Abundance.COI)-RA_slope^2*Abundance.COI),
+                  Abundance.COI)) %>%
+  group_by(Date) %>% 
+  mutate(RA.COI.adj = Abundance.COI.adj/sum(Abundance.COI.adj))
+slope_corr
+
+slope_corr %>% 
+  ggplot() +
+  geom_point(aes(RA.count, RA.COI.adj), color = "blue") +
+  geom_smooth(aes(RA.count, RA.COI.adj), method = lm, color = "blue") +
+  
+  geom_point(aes(RA.count, RA.COI), color = "red") +
+  geom_smooth(aes(RA.count, RA.COI), method = lm, color = "red") +
+  
+  geom_abline(slope = 1) +
+  
+  theme_bw() +
+  ylim(0, 1) +
+  facet_wrap("Taxa", scales = "free_y")
+
+```
+
+```{r}
+slope_corr <- comp.d %>%
+  group_by(Taxa) %>% 
+  summarise(max_contribution = mean(RA.count)) %>% 
+  arrange(desc(max_contribution)) %>% 
+  left_join(species_list, by = "Taxa") %>% 
+  left_join(comp.d, by = "Taxa") %>% 
+  group_by(Date) %>% 
+  mutate(Total.abundance.COI = sum(Abundance.COI),
+         Abundance.COI.adj = Abundance.COI)
+
+Taxa_ordered <- slope_corr %>% 
+  pull(Taxa) %>% unique
+
+for (j in 1:length(Taxa_ordered)) {
+  
+  Taxa_j <- Taxa_ordered[2]
+  
+  slope_corr <- slope_corr %>% 
+    mutate(Abundance.COI.adj = 
+           ifelse(RA_p.val < 0.05 & RA_Rsq > 0.3 & Taxa == Taxa_j & between(RA_slope, 0.6, 1.4)==FALSE,
+                  (RA_slope^2*(Total.abundance.COI*Abundance.COI.adj-Abundance.COI.adj^2))/ 
+                    (Total.abundance.COI-RA_slope^2*Abundance.COI.adj),
+                  Abundance.COI.adj)) %>% 
+    group_by(Date) %>% 
+    mutate(Total.abundance.COI = sum(Abundance.COI.adj))
+}
+
+slope_corr
+
+
+
+slope_corr %>%
+  group_by(Date) %>% 
+  mutate(RA.COI.adj = Abundance.COI.adj/sum(Abundance.COI.adj)) %>% 
+  ggplot() +
+  geom_point(aes(RA.count, RA.COI.adj), color = "blue") +
+  geom_smooth(aes(RA.count, RA.COI.adj), method = lm, color = "blue") +
+  
+  geom_point(aes(RA.count, RA.COI), color = "red") +
+  geom_smooth(aes(RA.count, RA.COI), method = lm, color = "red") +
+  
+  geom_abline(slope = 1) +
+  
+  theme_bw() +
+  ylim(0, 1) +
+  facet_wrap("Taxa", scales = "free_y")
+
+```
+
+```{r}
+#Create new tables for regression summary and calculate coefficients 
+species_list <- data.frame(Taxa = unique(comp.d$Taxa),
+                           RA_Rsq = 0,
+                           I_Rsq = 0,
+                           Adj_Rsq = 0,
+                           
+                           RA_p.val = 0,
+                           I_p.val = 0,
+                           Adj_p.val = 0,
+                           
+                           RA_B0 = 0,
+                           I_B0 = 0,
+                           Adj_B0 = 0, 
+                           
+                           RA_slope = 0,
+                           I_slope = 0,
+                           Adj_slope = 0)
+species_list
+
+for(i in 1:length(species_list$Taxa)){ #Start of loop
+  data=slope_corr[slope_corr$Taxa == species_list$Taxa[i],]
+  lm1 <- lm(RA.count.sq ~ RA.COI.sq, data = data)
+  lm2 <- lm(sqrt(RA_Index.count) ~ sqrt(RA_Index.COI), data = data)
+  lm3 <- lm(RA.count.sq ~ sqrt(RA.COI.adj), data = data)
+  species_list$RA_Rsq[i] <- summary(lm1)$adj.r.squared
+  species_list$RA_p.val[i] <- summary(lm1)$coefficients[2,4]
+  species_list$RA_B0[i] <- lm1$coefficients[1]
+  species_list$RA_slope[i] <- lm1$coefficients[2]
+  species_list$I_Rsq[i] <- summary(lm2)$adj.r.squared
+  species_list$I_p.val[i] <- summary(lm2)$coefficients[2,4]
+  species_list$I_B0[i] <- lm2$coefficients[1]
+  species_list$I_slope[i] <- lm2$coefficients[2]
+  species_list$Adj_Rsq[i] <- summary(lm3)$adj.r.squared
+  species_list$Adj_p.val[i] <- summary(lm3)$coefficients[2,4]
+  species_list$Adj_B0[i] <- lm3$coefficients[1]
+  species_list$Adj_slope[i] <- lm3$coefficients[2]
+}
+
+species_list
+```
+
+## NMDS
+
+### eDNA index
+
+```{r}
+
+mat <- comp.d %>% 
+  select(Taxa, Date, RA_Index.count, RA_Index.COI) %>% 
+  pivot_longer(3:4, names_to = "Marker") %>% 
+  mutate(Marker = ifelse(Marker == "RA_Index.count", "Count", "COI"),
+         Date = as.character(Date)) %>% 
+  mutate(Sample = paste(Date, Marker, sep = "_"), Taxa, value) %>%
+  select(Sample, Taxa, value) %>% 
+  pivot_wider(names_from = Taxa, values_from = value) %>% 
+  column_to_rownames("Sample") %>% 
+  as.matrix()
+
+NMDS <- metaMDS(sqrt(mat), trymax = 100)
+stressplot(NMDS)
+NMDS
+
+Samples <- 
+  scores(NMDS)$sites %>% 
+  as.data.frame() %>%
+  rownames_to_column("Name") %>% 
+  separate(Name, into = c("Date", "Marker"), sep = "_")
+
+Taxa <-
+  scores(NMDS)$species %>% 
+  as.data.frame() %>%
+  rownames_to_column("Taxa")
+
+NMDS_Index <-
+  Samples %>% 
+  ggplot(aes(NMDS1, NMDS2)) +
+  geom_line(aes(color = Date), linetype = "dotted") +
+  geom_point(aes(shape = Marker, color = Date), size = 3) +
+  geom_segment(data = Taxa,
+               aes(x = 0, xend = NMDS1, y = 0, yend = NMDS2),
+               arrow = arrow(length = unit(0.25, "cm")), colour = "grey") +
+  geom_text(data = Taxa, aes(NMDS1*1.1, NMDS2*1.1, label = Taxa)) +
+  theme_bw()
+
+```
+
+### RA
+
+```{r}
+mat <- comp.d %>% 
+  select(Taxa, Date, RA.count, RA.COI) %>% 
+  pivot_longer(3:4, names_to = "Marker") %>% 
+  mutate(Marker = ifelse(Marker == "RA.count", "Count", "COI"),
+         Date = as.character(Date)) %>% 
+  #(Marker == "Count") %>% 
+  mutate(Sample = paste(Date, Marker, sep = "_"), Taxa, value) %>%
+  select(Sample, Taxa, value) %>% 
+  pivot_wider(names_from = Taxa, values_from = value) %>% 
+  column_to_rownames("Sample") %>% 
+  as.matrix()
+  mat
+
+NMDS <- metaMDS(sqrt(mat), trymax = 100)
+stressplot(NMDS)
+NMDS
+
+Samples <- 
+  scores(NMDS)$sites %>% 
+  as.data.frame() %>%
+  rownames_to_column("Name") %>% 
+  separate(Name, into = c("Date", "Marker"), sep = "_")
+
+Taxa <-
+  scores(NMDS)$species %>% 
+  as.data.frame() %>%
+  rownames_to_column("Taxa")
+
+NMDS_relative_abundance <-
+  Samples %>% 
+  ggplot(aes(NMDS1, NMDS2)) +
+  geom_line(aes(color = Date), linetype = "dotted") +
+  geom_point(aes(shape = Marker, color = Date), size = 3) +
+  geom_segment(data = Taxa,
+               aes(x = 0, xend = NMDS1, y = 0, yend = NMDS2),
+               arrow = arrow(length = unit(0.25, "cm")), colour = "grey") +
+  geom_text(data = Taxa, aes(NMDS1*1.1, NMDS2*1.1, label = Taxa)) +
+  theme_bw()
+```
+
+```{r}
+ggarrange(NMDS_relative_abundance, NMDS_Index, common.legend = TRUE)
+
+
+```
+
 
 
 ```{r}
@@ -1118,6 +1404,7 @@ left_join(Net_count_2017_index_genus,
   mutate(Diff = RA_Index.COI/RA_Index.count) %>% 
   ggplot(aes(Abundance.COI, abs(log10(Diff)))) +
   geom_point()
+
 
 
 
