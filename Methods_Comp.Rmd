@@ -16,12 +16,13 @@ source("Code/Import_datasets.R")
 # All data format modifications and filtering and plotting
 library(tidyverse)
 '%!in%' <- function(x,y)!('%in%'(x,y))
+source("Code/Functions.R")
 
 # Specific plotting tools
-library(ggVennDiagram)
-library(UpSetR)
-library(eulerr)
-library(ggupset)
+#library(ggVennDiagram)
+#library(UpSetR)
+#library(eulerr)
+#library(ggupset)
 library(plotly)
 library(ggpubr)
 library(ggnewscale)
@@ -36,9 +37,6 @@ library(vegan)
 ```
 
 
-
-
-
 The flowing code will download the needed data sets from Google Drive server and put them in the Data_import directory. Only has to be run once after cloning this directory.
 
 ```{r eval=FALSE, include=FALSE}
@@ -49,7 +47,6 @@ drive_auth()
 # These functions refere to code specifyed under Code/Import_datasets.R.
 update_DNA_datasets()
 update_ZP_datasets()
-update_Contributed_data()
 
 ```
 
@@ -71,14 +68,36 @@ df_COI <-
   pivot_longer(!1:12, names_to = "Library_ID", values_to = "Abundance") %>%
   full_join(Samptab_COI, by = "Library_ID")
 
-
-df_COI %>% 
-  filter(Sample_type == "eDNA",
-         year(Sample_date) == "2019") %>% 
-  write.csv("Figure_output/COI_2019.csv")
-
 df_COI
 ```
+
+## List contributing Hakai staff 
+```{r}
+personel <- Samptab_COI %>%
+  group_by(Sample_date) %>% 
+  summarize(Sample_technician = unique(Sample_technician),
+            Extraction_staff = unique(Extraction_staff)) %>%
+  pivot_longer(2:3, names_to = "Task", values_to = "technician") %>% 
+  separate(technician, sep = ",", into = c("A", "B", "C", "D")) %>% 
+  pivot_longer(3:6, values_to = "tecnichian") %>%
+  filter(is.na(tecnichian) == FALSE) %>% 
+  select(!name)
+
+# Sampling staff  
+personel %>% 
+  filter(Task == "Sample_technician") %>%
+  group_by(tecnichian) %>% 
+  summarise(Days_Sampled = n()) %>% 
+  arrange(-Days_Sampled)
+
+# Extraction staff
+personel %>% 
+  filter(Task == "Extraction_staff") %>%
+  group_by(tecnichian) %>% 
+  summarise(Days_Extracted = n()) %>% 
+  arrange(-Days_Extracted)
+```
+
 
 ## 18S data components
 
@@ -86,32 +105,18 @@ The 18S Sequencing data are downloaded in the compact format with a separate ASV
 
 ```{r}
 # Import downloaded rds (compact r data) files
-ASV_18S <- readRDS("Data_import/18S/ASV_18S.rds")
+ASV_18S <- readRDS("Data_import/18S/ASV_Taxtab_18S.rds")
 Samptab_18S <- readRDS("Data_import/18S/Samptab_18S.rds")
-Taxtab_18S <- readRDS("Data_import/18S/Taxtab_18S.rds")
 
 # Combine the three components to a tidy data tibble
-df_18S <- 
-  full_join(Taxtab_18S, ASV_18S, by = "Sequence") %>% 
-  pivot_longer(!1:10, names_to = "Library_ID", values_to = "Abundance") %>% 
-  full_join(Samptab_18S, by = "Library_ID") %>% 
-  filter(is.na(ASV)==FALSE)
-```
+df_18S <- ASV_18S %>% 
+  pivot_longer(!1:8, names_to = "Library_ID", values_to = "Abundance") %>% 
+  full_join(Samptab_18S, by = "Library_ID")
 
-This is the contributed data set from Catherinas 18S sequencing project. The data is downloaded as a Phyloseq object, and melted into a data frame to resemble the data above.
-
-```{r}
-df_18S_ts <- readRDS("Data_import/Contributed18S/ps_18S.rds") %>% psmelt()
+df_18S
 ```
 
 ## Microscopy data
-
-Count data from the vertical aspect of Zoopsprint 2022. Counted mainly by Christie.
-
-```{r}
-df_count_vertical <- read_excel("Data_import/Microscopy/Vertical_ZP_2022.xlsx")
- 
-```
 
 The count data set from QU39, counted mainly by Moira.
 
@@ -121,10 +126,19 @@ df_count_2017 <- readRDS("Data_import/Microscopy/Hakai_Zooplankton_2013-2017_AN.
   separate(Taxon, sep= " ", into=c("Genus", "Tax1", "Tax2", "Tax3", "Tax4"))
 ```
 
-## Defining metazoan phyla
+## Clean up
+```{r}
+rm(ASV_18S, ASV_COI, Samptab_18S, Samptab_COI, Taxtab_COI)
+```
+
+
+# 2. Subset and calculate eDNA indexes of data sets:
+
+In this section the different data formats of the 2017 QU39 time series will be mutated into similar data shapes and transformed in such a way that the data types can be compared. To keep filtering parameters equal for all data types, a set of functions are first defined, that are then executed for all data sets. Comparisons are done both at species and at genus level.
+
+## Define Metazoa
 
 Specifying global filtering parameter: What phyla are present in metazoa?
-
 ```{r}
 metazoa <- c("Arthropoda",
              "Cnidaria",
@@ -143,293 +157,220 @@ metazoa <- c("Arthropoda",
              "Platyhelminthes")
 ```
 
-# 2. Subset and calculate eDNA indexes of data sets:
-
-In this section the different data formats of the 2017 QU39 time series will be mutated into similar data shapes and transformed in such a way that the data types can be compared. To keep filtering parameters equal for all data types, a set of functions are first defined, that are then executed for all data sets. Comparisons are done both at species and at genus level.
-
-## Defining transformation and filtering functions
-
-The following function will calculate relative abundance and the index of relative abundance (RA_Index) for any data set. The RA_Index is identical to eDNA Index, but as other data types than eDNA is used here, we choose to give the index a more generic name. The functions are specific for the given analysis workflow and are not meant to be exported.
-
-```{r}
-
-collapseRAindex <- function(data) {
-  
-  # This function requires a data frame that contains at least the following parameters:
-  # Abundance (read count or taxonomic count)
-  # Date (date of sampling)
-  # Taxa (can be either genus or species)
-  # Depth (a factor, eiter a discrete depth or a depth interval)
-  
-  output <- data %>%
-    # Interpret na as 0
-    mutate(Abundance = ifelse(is.na(Abundance), 0, Abundance)) %>%
-    
-    # Summarising abundance per date, depth and taxa.
-    group_by(Date, Taxa, Depth) %>% 
-    summarise(Abundance = sum(Abundance)) %>%
-    
-    # Calculate relative abundance (RA) for each samples.
-    # Contain taxa and original abundance information.
-    group_by(Date, Depth) %>% 
-    reframe(RA = Abundance/sum(Abundance),
-            Taxa, Abundance) %>%
-    filter(is.na(RA) == FALSE) %>%
-    
-    
-    
-    #Remove out liers before calculating Index:
-    group_by(Taxa) %>%
-    #filter(RA <= quantile(RA, 0.99)) %>% 
-    reframe(RA = ifelse(RA <= quantile(RA, 0.99), RA, -1),
-            Date, Depth, Abundance) %>%
-    group_by(Taxa) %>%
-    reframe(RA = ifelse(RA == -1, max(RA), RA),
-            Date, Depth, Abundance) %>% 
-    
-    # Calculate Index for each taxa.
-    # Contain depth, date, Abundance and RA information.
-    group_by(Taxa) %>%
-    reframe(Date, Depth, Abundance, RA,
-            RA_Index = RA/max(RA)) %>% 
-    filter(is.na(RA_Index) == FALSE)
-
-  return(output)
-}
-```
-
-The following function will generate a list of prevalent species by filtering the output generated by the function above. The function will remove species with inadequate species names, and remove species with generally low occurrences throughout the data set.
-
-```{r}
-getSpeciesList <- function(data, type = "DNA") {
-  # This function require the output of "collapseRAindex" function.
-  
-  # Prefiltration for DNA data.
-  # An initial filtering step will remov any low observation.
-  if (type == "DNA") {data <- filter(data, Abundance > 50)}
-  
-  List <- data %>% 
-  
-    # Remove low occurrences.
-    # Each species has to be observed in more than 2 samples.
-    filter(RA_Index > 0) %>% 
-    group_by(Taxa) %>%
-    filter(n() > 2) %>% 
-    
-    # Remove bad species names:
-    # The following name patterns indicate that species level identification failed. 
-    filter(!grepl('sp.', Taxa),
-           !grepl('_sp', Taxa),
-           !grepl(' sp', Taxa),
-           grepl(' ', Taxa),
-           is.na(Taxa)==FALSE,
-           Taxa != "no identification") %>%
-    
-    # Special case database name correction:
-    mutate(Taxa = ifelse(Taxa== "Discoconchoecia aff. elegans CMARA05309_Os109.1.1",
-                          "Discoconchoecia elegans", Taxa)) %>% 
-  
-    # Get Taxa names
-    pull(Taxa) %>% unique()
-
-  return(List)  
-  # This function returns a name vector of species that passed filtering parameters.
-  
-}
-```
-
-The following function will generate a list of prevalent genera by filtering the output generated by the function above. The function will remove genera with inadequate genus names, and remove genera with generally low occurrences throughout the data set.
-
-```{r}
-getGenusList <- function(data, type="DNA") {
-  # This function require the output of "collapseRAindex" function.
-  
-  # Prefiltration for DNA data.
-  # An initial filtering step will remove any low observation.
-  if (type == "DNA") {data <- filter(data, Abundance > 50)}
-  
-  List <- data %>%
-  
-    # Remove low occurrences
-    # Each genus has to be observed in more than 5 samples.
-    filter(RA_Index > 0) %>% 
-    group_by(Taxa) %>%
-    filter(n() > 5) %>%
-    
-    # Remove bad genus names
-    # The following name patterns indicate that genus level identification failed. 
-    filter(is.na(Taxa)==FALSE,
-           !grepl('_', Taxa),
-           Taxa != "no identification",
-           Taxa != "unknown genus") %>% 
-    # Get Taxa names
-    pull(Taxa) %>% unique()
-
-  return(List)  
-  # This function returns a name vector of genera that passed filtering parameters.
-}
-```
-
-## Calculate RA_Index
-
 In the following section the functions defined above are used to calculate the relative abundance indexes for the different datasets in the QU39 2017 time series.
 
-### Net Count
+### Net Microscopy
 
 Microscopy count data from integrated zooplankton net tows:
-
 ```{r}
-# Filter samples in the dataset
-Net_count_2017 <- df_count_2017 %>% 
+# Species
+Net_count_2017_index_species <- df_count_2017 %>% 
   filter(Station %in% c("QU39"),
-         year(Date) == 2017)
-  
-# Species level calculation  
-Net_count_2017_index_species <- Net_count_2017 %>% 
-  # Define what columns contaim Taxa, Abundance, Depth, and Date:
-  mutate(Taxa = paste(Genus, Tax1, sep = " "),
+         year(Date) == 2017) %>%
+  mutate(Depth = DEPTH_STRT,
+         Taxa = paste(Genus, Tax1, sep = " "),
          Abundance = Biomass,
-         Depth= DEPTH_STRT,
-         Date = Date) %>% 
-  # Calculate RA_index
-  collapseRAindex()
+         Sample = Key) %>%
+  index_RA(Sample, Taxa, Abundance, Depth, Date)
 
-
-# Genus level claculation
-Net_count_2017_index_genus <- Net_count_2017 %>% 
-  # Define Taxa, abundance, Depth, Date:
-  mutate(Taxa = Genus,
+# Genus
+Net_count_2017_index_genus <- df_count_2017 %>% 
+  filter(Station %in% c("QU39"),
+         year(Date) == 2017) %>%
+  mutate(Depth = DEPTH_STRT,
+         Taxa = Genus,
          Abundance = Biomass,
-         Depth= DEPTH_STRT,
-         Date = Date) %>% 
-  # Calculate RA index
-  collapseRAindex()
+         Sample = Key) %>%
+  index_RA(Sample, Taxa, Abundance, Depth, Date)
 ```
 
 ### Net 18S
 
 18S sequence data from integrated zooplankton net tows:
-
 ```{r}
-# Filter samples in the dataset
-Net_18S_2017 <- df_18S %>% 
+# Species
+Net_18S_2017_index_species <- df_18S %>% 
   filter(Project_name == "Vertical",
          year(Sample_date) == 2017,
-         Division == "Metazoa",
-         Sample_type == "Zp_Net")
-
-# Species level  
-Net_18S_2017_index_species <- Net_18S_2017 %>% 
-  # Define Taxa, abundance, Depth Date:
+         Class %in% metazoa,
+         Sample_type == "Zp_Net") %>%
   mutate(Taxa = str_replace(Species, "_", " "),
-         Abundance = Abundance,
-         Depth = Line_out_depth,
-         Date = Sample_date) %>% 
-  collapseRAindex()
+         Depth = as.character(Line_out_depth),
+         Date = Sample_date,
+         Sample = Library_ID) %>% 
+  index_RA(Sample, Taxa, Abundance, Depth, Date)
+Net_18S_2017_index_species
 
-# Genus level  
-Net_18S_2017_index_genus <- Net_18S_2017 %>% 
-  # Define Taxa, abundance, Depth Date:
+# Genus
+Net_18S_2017_index_genus <- df_18S %>% 
+  filter(Project_name == "Vertical",
+         year(Sample_date) == 2017,
+         Class %in% metazoa,
+         Sample_type == "Zp_Net") %>%
   mutate(Taxa = Genus,
-         Abundance = Abundance,
-         Depth=Line_out_depth,
-         Date = Sample_date) %>% 
-  collapseRAindex()
+         Depth = as.character(Line_out_depth),
+         Date = Sample_date,
+         Sample = Library_ID) %>% 
+  index_RA(Sample, Taxa, Abundance, Depth, Date)
+Net_18S_2017_index_genus
 ```
 
 ### eDNA 18S
 
 18S sequence data from discrete eDNA Niskin bottles.
-
 ```{r}
-# Filter samples in the dataset
-eDNA_18S_2017 <- df_18S_ts %>% 
-  filter(year(collected) == 2017,
-         site_id == "QU39",
-         Kingdom == "Metazoa")
-
-# Species level index
-eDNA_18S_2017_index_species <- eDNA_18S_2017 %>% 
+# Species
+eDNA_18S_2017_index_species <- df_18S %>% 
+  filter(year(Sample_date) == 2017,
+         Site_ID == "QU39",
+         Class %in% metazoa) %>%
   mutate(Taxa = str_replace(Species, "_", " "),
-         Abundance = Abundance,
-         Depth = line_out_depth,
-         Date = date(collected)) %>% 
-  collapseRAindex()
+         Depth = as.character(Line_out_depth),
+         Date = Sample_date,
+         Sample = Library_ID) %>% 
+  index_RA(Sample, Taxa, Abundance, Depth, Date)
+eDNA_18S_2017_index_species
 
-# Genus level index
-eDNA_18S_2017_index_genus <- eDNA_18S_2017 %>% 
+# Genus
+eDNA_18S_2017_index_genus <- df_18S %>% 
+  filter(year(Sample_date) == 2017,
+         Site_ID == "QU39",
+         Class %in% metazoa) %>%
   mutate(Taxa = Genus,
-         Abundance = Abundance,
-         Depth = line_out_depth,
-         Date = date(collected)) %>% 
-  collapseRAindex()
-
+         Depth = as.character(Line_out_depth),
+         Date = Sample_date,
+         Sample = Library_ID) %>% 
+  index_RA(Sample, Taxa, Abundance, Depth, Date)
+eDNA_18S_2017_index_genus
 
 ```
 
 ### Net COI
 
 COI sequence data from integrated zooplankton net tows:
-
 ```{r}
-# Filter samples in the dataset
-Net_COI_2017 <- df_COI %>%
+# Species
+Net_COI_2017_index_species <- df_COI %>%
   filter(Project_name == "Vertical",
          year(Sample_date) == 2017,
          Sample_type == "Zp_Net",
-         phylum %in% metazoa)
-
-# Species level index
-Net_COI_2017_index_species <- Net_COI_2017 %>% 
-  mutate(Taxa = species,
+         phylum %in% metazoa) %>% 
+  mutate(Sample = Library_ID,
+         Taxa = species,
          Abundance = Abundance,
-         Depth = Line_out_depth,
+         Depth = as.character(Line_out_depth),
          Date = Sample_date) %>% 
-  collapseRAindex()
+  index_RA(Sample, Taxa, Abundance, Depth, Date)
+Net_COI_2017_index_species
 
-# Species level index
-Net_COI_2017_index_genus <- Net_COI_2017 %>% 
-  mutate(Taxa = genus,
+# Genus
+Net_COI_2017_index_genus <- df_COI %>%
+  filter(Project_name == "Vertical",
+         year(Sample_date) == 2017,
+         Sample_type == "Zp_Net",
+         phylum %in% metazoa) %>% 
+  mutate(Sample = Library_ID,
+         Taxa = genus,
          Abundance = Abundance,
-         Depth = Line_out_depth,
+         Depth = as.character(Line_out_depth),
          Date = Sample_date) %>% 
-  collapseRAindex()
+  index_RA(Sample, Taxa, Abundance, Depth, Date)
+Net_COI_2017_index_genus
+
 ```
 
 ### eDNA COI
 
 18S sequence data from discrete eDNA Niskin bottles.
-
 ```{r}
-# Filter samples in the dataset
-eDNA_COI_2017 <- df_COI %>%
+# Species
+eDNA_COI_2017_index_species <- df_COI %>%
   filter(Project_name == "QU39",
          Sample_type == "eDNA",
          year(Sample_date)==2017,
-         phylum %in% metazoa)
-
-# Species level index
-eDNA_COI_2017_index_species <- eDNA_COI_2017 %>% 
-  mutate(Taxa = species,
+         phylum %in% metazoa) %>% 
+  mutate(Sample = Library_ID,
+         Taxa = species,
          Abundance = Abundance,
-         Depth = Line_out_depth,
+         Depth = as.character(Line_out_depth),
          Date = Sample_date) %>% 
-  collapseRAindex()
+  index_RA(Sample, Taxa, Abundance, Depth, Date)
+eDNA_COI_2017_index_species
 
-# Species level index
-eDNA_COI_2017_index_genus <- eDNA_COI_2017 %>% 
-  mutate(Taxa = genus,
+# Genus
+eDNA_COI_2017_index_genus <- df_COI %>%
+  filter(Project_name == "QU39",
+         Sample_type == "eDNA",
+         year(Sample_date)==2017,
+         phylum %in% metazoa) %>% 
+  mutate(Sample = Library_ID,
+         Taxa = genus,
          Abundance = Abundance,
-         Depth = Line_out_depth,
+         Depth = as.character(Line_out_depth),
          Date = Sample_date) %>% 
-  collapseRAindex()
+  index_RA(Sample, Taxa, Abundance, Depth, Date)
+eDNA_COI_2017_index_genus
 ```
+
+
+
+
 
 # \*\*\*\*\*\*\*\*\* RESULTS OUTPUT \*\*\*\*\*\*\*\*\*
 
 # 3. Coverage comparison of taxonomic markers
 
-## 3.1 Pairwise overlap heat maps:
+## 3.1 Check library size ect
+
+```{r}
+
+
+summary_18S <- df_18S %>% 
+  filter(Site_ID == "QU39",
+         year(Sample_date) == 2017) %>% 
+  mutate(Abundance = ifelse(is.na(Abundance), 0, Abundance)) %>% 
+  mutate(Taxa = ifelse(Class %in% metazoa, "Metazoa", "Other")) %>%
+  mutate(Sampling_depth = ifelse(Project_name == "Vertical", "230-0", Line_out_depth)) %>% 
+  group_by(Sample_date, Sampling_depth, Taxa, Library_ID) %>% 
+  summarise(Abundance = sum(Abundance)) %>% 
+  group_by(Sample_date, Sampling_depth, Library_ID) %>% 
+  reframe(RA = Abundance/sum(Abundance), Taxa, Abundance) %>%
+  group_by(Library_ID) %>% 
+  filter(sum(Abundance)>0) %>% 
+  mutate(Marker = "18S")
+
+summary_COI <- df_COI %>% 
+  filter(Site_ID == "QU39",
+         year(Sample_date) == 2017) %>% 
+  mutate(Abundance = ifelse(is.na(Abundance), 0, Abundance)) %>% 
+  mutate(Taxa = ifelse(phylum %in% metazoa, "Metazoa", "Other")) %>%
+  mutate(Sampling_depth = ifelse(Project_name == "Vertical", "230-0", Line_out_depth)) %>%
+  filter(is.na(Sampling_depth)==FALSE) %>% 
+  group_by(Sample_date, Sampling_depth, Taxa, Library_ID) %>% 
+  summarise(Abundance = sum(Abundance)) %>% 
+  group_by(Sample_date, Sampling_depth, Library_ID) %>% 
+  reframe(RA = Abundance/sum(Abundance), Taxa, Abundance) %>%
+  group_by(Library_ID) %>% 
+  filter(sum(Abundance)>0) %>% 
+  mutate(Marker = "COI")
+  
+
+bind_rows(summary_18S, summary_COI) %>%
+  filter(Taxa == "Metazoa") %>%
+  mutate(Sampling_depth = factor(Sampling_depth,
+                                   levels= c("0", "5", "30",
+                                             "100", "260", "230-0"))) %>%
+  ggplot() +
+  geom_boxplot(aes(Sampling_depth, RA, color = Marker)) +
+  theme_cowplot(12) +
+  theme(aspect.ratio = 1,
+        strip.background =element_blank()) +
+  scale_color_manual(values = c('#377eb8','#4daf4a'))
+
+```
+
+
+## 3.2 Pairwise overlap heat maps:
 
 ### Combine lists:
 
@@ -474,7 +415,10 @@ PairwiseOverlap <- function(ListComp = SpeciesListComp, level = "Species Level")
 
 
 overlap_Plot <- bind_rows(PairwiseOverlap(SpeciesListComp, "Species Level"),
-          PairwiseOverlap(GenusListComp, "Genus Level")) %>% 
+          PairwiseOverlap(GenusListComp, "Genus Level"))
+
+
+overlap_Plot %>% 
   ggplot(aes(group1, group2)) +
   geom_tile(aes(fill = value)) +
   geom_text(aes(label = value)) +
@@ -489,7 +433,6 @@ overlap_Plot <- bind_rows(PairwiseOverlap(SpeciesListComp, "Species Level"),
         aspect.ratio = 1,
         strip.background =element_blank())
   
- overlap_Plot 
 ggsave("Figure_output/Pairwise_Overlap.pdf", width = 7, height = 4.5)
 ```
 
@@ -499,7 +442,7 @@ ggsave("Figure_output/Pairwise_Overlap.pdf", width = 7, height = 4.5)
 
 -   At genus level all methods align better. COI preforms better than 18S, and Net samples preform better than eDNA.
 
-## 3.2 Proportion of counted biomass detected by eDNA
+## 3.3 Proportion of counted biomass detected by eDNA
 
 From the Euler diagram it appears as only a fraction of counted zooplankton is detected by the DNA methods. However, the diagram values all taxa equally and does not account for the relative importance of the taxa. The following code extracts the biomass proportion of counted taxa that are also detected by COI and 18S respectively.
 
@@ -586,7 +529,8 @@ fraction_genus <-
          `Bulk COI & 18S` = Detected_18S_COI /Counted_Biomass) %>% 
   select(Date, `Bulk COI`, `Bulk 18S`, `Bulk COI & 18S`) %>% 
   pivot_longer(2:4, names_to = "Marker", values_to = "Proportion") %>% 
-  mutate(Level = "Genus level")}
+  mutate(Level = "Genus level")
+}
 
 
 ```
@@ -603,7 +547,7 @@ Biomass_fraction_plot <- bind_rows(fraction_genus, fraction_species) %>%
   facet_wrap("Level") +
   theme(aspect.ratio = 1,
         axis.title.x=element_blank())
-  
+Biomass_fraction_plot
 
 ggsave("Figure_output/Biomass_fractions.pdf", width = 7, height = 4.5)
 
@@ -620,11 +564,10 @@ ggsave("Figure_output/Biomass_fractions.pdf", width = 7, height = 4.5)
 
 4.  Combining 18S and COI is slightly, but only marginally better than using COI alone.
 
-## 3.3. Exclusive taxa
+## 3.4. Exclusive taxa
 
 So the DNA methods combined targets 50-70% of zooplankton my biomass. Here we investigate the remaining genera, that remains un-targeted by the DNA methods. The Genera are ordered by relative biomass contribution.
 
-### TODO: Color bars for broader taxa \<--------------
 
 ```{r}
 Net_count_2017_index_genus %>% 
@@ -737,7 +680,7 @@ SpeciesList <-
   pull(Taxa) %>% unique()
 ```
 
-Next we create a merged dataset for the different merkers:
+Next we create a merged dataset for the different markers:
 
 ```{r}
 Net_merged_data <-
@@ -913,8 +856,6 @@ bind_rows(mod1$NMDS.scores, mod2$NMDS.scores, mod3$NMDS.scores) %>%
   scale_color_manual(values = seasonal_colors)
 
 ggsave("Figure_output/NMDS_COI.pdf", width = 8, height = 7)
-
-mod1$NMDS.scores
 
 ```
 
@@ -1267,7 +1208,7 @@ bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
   # Plot
   ggplot() +
   geom_line(aes(Date, RA_Index, color = marker, linetype = marker)) +
-  facet_wrap(facets = "Taxa", ncol = 3) +
+  facet_wrap(facets = "Taxa", ncol = 6) +
   theme_minimal_hgrid() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
         strip.text = element_text(face = "italic"),
@@ -1276,7 +1217,7 @@ bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
         aspect.ratio = 1/2.5) +
   scale_color_manual(values = c('#fec44f','#4daf4a','#377eb8'))
 
-ggsave("Figure_output/Seasonal_Bulk_Genus.pdf", width = 7, height = 10)
+ggsave("Figure_output/Seasonal_Bulk_Genus.pdf", width = 12, height = 7)
 ```
 
 RA_index of eDNA samples, the average of 18S and COI.
@@ -1311,7 +1252,7 @@ data %>% ggplot() +
     aes(Date, y, color = RA_Index),
     #filter(data, y %!in% c("Count", "COI")),
     shape = 15) +
-  facet_wrap(facets = "Taxa", ncol = 3) +
+  #facet_wrap(facets = "Taxa", ncol = 3) +
   scale_color_gradient2(high = '#984ea3',
                        low = "white") +
   
@@ -1321,7 +1262,7 @@ data %>% ggplot() +
     aes(Date, y, color = RA_Index),
     filter(data, y %in% c("Count")),
     shape = 15) +
-  facet_wrap(facets = "Taxa", ncol = 3) +
+  #facet_wrap(facets = "Taxa", ncol = 3) +
   scale_color_gradient2(high = '#fec44f',
                        low = "white") +
   
@@ -1331,7 +1272,7 @@ data %>% ggplot() +
     aes(Date, y, color = RA_Index),
     filter(data, y %in% c("COI")),
     shape = 15) +
-  facet_wrap(facets = "Taxa", ncol = 3) +
+  #facet_wrap(facets = "Taxa", ncol = 3) +
   scale_color_gradient2(high = '#4daf4a',
                        low = "white") +
   
@@ -1341,18 +1282,18 @@ data %>% ggplot() +
     aes(Date, y, color = RA_Index),
     filter(data, y %in% c("18S")),
     shape = 15) +
-  facet_wrap(facets = "Taxa", ncol = 3) +
+  facet_wrap(facets = "Taxa", ncol = 5) +
   scale_color_gradient2(high = '#377eb8',
                        low = "white") +
   
   theme_map() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
         strip.text = element_text(face = "italic"),
-        #legend.position="none",
+        legend.position="none",
         panel.background = element_rect(fill = '#F5F5F5', colour = 'darkgrey'),
         aspect.ratio = 1/2.5)
 
-ggsave("Figure_output/Seasonal_Comb_Genus.pdf", width = 7, height = 10)
+ggsave("Figure_output/Seasonal_Comb_Genus_press.pdf", width = 7, height = 10)
 
 
 
@@ -1378,7 +1319,7 @@ bind_rows(mutate(Net_count_2017_index_species, marker = "Count"),
         legend.position = "none") +
   scale_color_manual(values = c('#4daf4a','#fec44f'))
 
-ggsave("Figure_output/Seasonal_Bulk_Species.pdf", width = 7, height = 10)
+ggsave("Figure_output/Seasonal_Bulk_Species.pdf", width = 10, height = 7)
 ```
 
 ## Comnined plot species level
@@ -1435,123 +1376,4 @@ ggsave("Figure_output/Seasonal_comb_Species.pdf", width = 7, height = 10)
 
 ```
 
-# Experiments
 
-## Include all taxa
-
-In this plot, I include all taxa that passes quality filtering for COI on genus level. Revealing a handful of additional species with interesting seasonal patterns (as it appears)
-
-```{r}
-eDNA_COI_2017_index_genus %>% 
-  filter(Taxa %in% getGenusList(eDNA_COI_2017_index_genus)) %>% 
-  group_by(Taxa, Date, Depth) %>% 
-  mutate(Depth = factor(Depth, levels = rev(c("0", "5", "30", "100", "260")))) %>% 
-  ggplot() +
-  
-  geom_point(aes(Date, Depth,
-                 color = RA_Index), shape = 15) +
-  facet_wrap(facets = "Taxa") +
-  theme_bw() +
-  scale_color_gradient2(high = scales::muted("red"),
-                       low = scales::muted("white")) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-  labs(title = "eDNA Vertical at Genus Level")
-
-eDNA_COI_2017_index_genus %>% 
-  filter(Taxa %in% getGenusList(.),
-         Abundance > 0) %>%
-  group_by(Taxa) %>% 
-  summarise(Sum = sum(Abundance),
-            Median = median(Abundance)) %>% 
-  arrange(desc(Median))
-
-
-eDNA_COI_2017_index_species %>% 
-  filter(Taxa %in% getSpeciesList(.)) %>% 
-  group_by(Taxa, Date, Depth) %>% 
-  mutate(Depth = factor(Depth, levels = rev(c("0", "5", "30", "100", "260")))) %>% 
-  ggplot() +
-  
-  geom_point(aes(Date, Depth,
-                 color = RA_Index), shape = 15) +
-  facet_wrap(facets = "Taxa") +
-  theme_bw() +
-  scale_color_gradient2(high = scales::muted("red"),
-                       low = scales::muted("white")) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-  labs(title = "eDNA Vertical at Genus Level")
-
-```
-
-## All years
-
-```{r}
-# Filter samples in the dataset
-eDNA_COI_All <- df_COI %>%
-  filter(Project_name == "QU39",
-         Sample_type == "eDNA",
-         phylum %in% metazoa)
-
-# Species level index
-eDNA_COI_ALL_index_species <- eDNA_COI_All %>% 
-  mutate(Taxa = species,
-         Abundance = Abundance,
-         Depth = Line_out_depth,
-         Date = Sample_date) %>% 
-  collapseRAindex()
-
-eDNA_COI_ALL_index_species %>% 
-  filter(Taxa %in% getSpeciesList(.)) %>%
-  filter(Taxa %in% SpeciesList) %>% 
-  group_by(Taxa, Date, Depth) %>%
-  mutate(Depth = factor(Depth, levels = rev(c("0", "5", "30", "100", "260")))) %>%
-  filter(is.na(Depth) == FALSE) %>% 
-  ggplot() +
-  
-  geom_point(aes(Date, Depth,
-                 color = RA_Index), shape = 15) +
-  facet_wrap(facets = "Taxa") +
-  theme_bw() +
-  scale_color_gradient2(high = scales::muted("red"),
-                       low = scales::muted("white")) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-  labs(title = "eDNA Vertical at Genus Level")
-
-  
-```
-
-```{r}
-eDNA_COI_ALL_index_species
-```
-
-## Depth gradient
-
-```{r}
-
-eDNA_COI_Gradient <- df_COI %>%
-  filter(Project_name == "Gradient",
-         Sample_type == "eDNA",
-         phylum %in% metazoa) %>% 
-  mutate(Taxa = genus,
-         Abundance = Abundance,
-         Depth = Line_out_depth,
-         Date = paste(Site_ID, Sample_date, sep = "_")) %>% 
-  collapseRAindex()
-
-
-
-
-eDNA_COI_Gradient %>%
-  mutate(Depth = -as.integer(Depth)) %>%
-  ggplot() +
-  geom_point(aes(Date, Depth,
-                 color = RA_Index), shape = 15) +
-  facet_wrap(facets = "Taxa") +
-  theme_bw() +
-  scale_color_gradient2(high = scales::muted("red"),
-                       low = scales::muted("beige")) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
-
-
-
-```

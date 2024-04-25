@@ -4,8 +4,8 @@ update_DNA_datasets <- function(repo = "Data_Novotny/AmpliconSeqAnalysis") {
   # No data other than what is imported in this function should be used for this data project.
   
   require(googledrive)
-  repo = "Data_Novotny/AmpliconSeqAnalysis"
-  file.path(repo, "Taxtab_COI.rds")
+  #repo = "Data_Novotny/AmpliconSeqAnalysis"
+  #file.path(repo, "Taxtab_COI.rds")
   
   ##############################
   # Download COI data components
@@ -25,13 +25,13 @@ update_DNA_datasets <- function(repo = "Data_Novotny/AmpliconSeqAnalysis") {
   ##############################
   # Download 18S data components
   
-  drive_download(file.path(repo, "Taxtab_18S.rds"),
-                 "Data_import/18S/Taxtab_18S.rds",
+  drive_download(file.path(repo, "ASV_Taxtab_18S.rds"),
+                 "Data_import/18S/ASV_Taxtab_18S.rds",
                  overwrite = TRUE)
   
-  drive_download(file.path(repo, "ASV_18S.rds"),
-                 "Data_import/18S/ASV_18S.rds",
-                 overwrite = TRUE)
+  #drive_download(file.path(repo, "ASV_18S.rds"),
+  #               "Data_import/18S/ASV_18S.rds",
+  #               overwrite = TRUE)
   
   drive_download(file.path(repo, "Samptab_18S.rds"),
                  "Data_import/18S/Samptab_18S.rds",
