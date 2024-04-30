@@ -313,6 +313,157 @@ eDNA_COI_2017_index_genus
 ```
 
 
+```{r}
+df_COI %>% 
+  filter(Project_name == "EtOH_sup")
+
+
+df_18S %>% 
+  pull(Project_name) %>% unique()
+```
+
+
+
+## 2.1 Rarefaction curves
+
+### Sample-wise rarefaction
+```{r}
+
+rarefaction_s <- function(df, marker) {
+
+  accum <- df %>% 
+    # Turn data into community df
+    group_by(Taxa, Sample) %>% 
+    summarise(Abundance = sum(Abundance)) %>% 
+    pivot_wider(names_from = "Taxa", values_from = "Abundance") %>%
+    column_to_rownames("Sample") %>% 
+    # Use Vegan to fit accumulation curve
+    specaccum() %>% 
+    fitspecaccum(model = "arrhenius")
+  
+  # Extract model output
+  accum_df <- data.frame(Sites=accum$sites, Richness=accum$richness, SD=accum$sd) %>% 
+    mutate(Marker = marker)
+}
+
+Net_COI_rs <- Net_COI_2017_index_species %>%
+  rarefaction_s("Net COI")
+
+Water_COI_rs <- eDNA_COI_2017_index_species %>%
+  rarefaction_s("Water COI")
+
+Net_18S_rs <- Net_18S_2017_index_species %>%
+  rarefaction_s("Net 18S")
+
+Water_18S_rs <- eDNA_18S_2017_index_species %>%
+  rarefaction_s("Water 18S")
+
+Net_Microscopy_rs <- Net_count_2017_index_species %>%
+  rarefaction_s("Net Microscopy")
+
+
+bind_rows(Net_COI_rs, Water_COI_rs, Net_18S_rs, Water_18S_rs, Net_Microscopy_rs) %>% 
+  ggplot() +
+  #geom_point(aes(x = Sites, y = Richness, color = Marker)) +
+  geom_line(aes(x = Sites, y = Richness, color = Marker)) +
+  geom_ribbon(aes(x = Sites, ymin = (Richness-2*SD), ymax=(Richness+2*SD), fill = Marker),alpha=0.2)+
+  theme_bw()
+
+data(BCI)
+BCI
+```
+```{r}
+
+hill_rarefaction <- function(data, nboot = 10, nsteps = 10) {
+
+  reads <- data %>% 
+    # Turn data into community df
+    group_by(Taxa, Sample) %>% 
+    summarise(Abundance = sum(Abundance)) %>% 
+    pivot_wider(names_from = "Taxa", values_from = "Abundance") %>%
+    column_to_rownames("Sample")
+
+    out <- do.call("rbind", lapply(rownames(reads), function(y) {
+      # sample sizes
+      if (sum(reads[y, ]) > 2000) {
+        rsize <- c(
+          5, 10, 100, 200, 500, 1000,
+          round(seq(2000, sum(reads[y, ]), length.out = nsteps))
+        )
+      } else {
+        rsize <- c(1, round(seq(2, sum(reads[y, ]), length.out = nsteps)))
+      }
+
+      # assess estimates at depths rsize
+      out <- data.frame(
+        pcr_id = y, reads = rsize,
+        D0 = NA, D0.sd = NA,
+        D1 = NA, D1.sd = NA,
+        D2 = NA, D2.sd = NA,
+        coverage = NA, coverage.sd = NA
+      )
+      for (s in 1:length(rsize)) {
+        # rarefaction
+        r <- lapply(1:nboot, function(z) {
+          rtmp <- rrarefy(reads[y, ], rsize[s])
+          rtmp[rtmp > 0]
+        })
+        out[s, "D0"] <- mean(sapply(r, function(z) length(z)))
+        out[s, "D0.sd"] <- sd(sapply(r, function(z) length(z)))
+        out[s, "D1"] <- exp(mean(sapply(r, function(z) diversity(z, index = "shannon"))))
+        out[s, "D1.sd"] <- exp(sd(sapply(r, function(z) diversity(z, index = "shannon"))))
+        out[s, "D2"] <- mean(sapply(r, function(z) diversity(z, index = "invsimpson")))
+        out[s, "D2.sd"] <- sd(sapply(r, function(z) diversity(z, index = "invsimpson")))
+        out[s, "coverage"] <- mean(sapply(r, function(z) 1 - length(which(z == 1)) / sum(z)))
+        out[s, "coverage.sd"] <- sd(sapply(r, function(z) 1 - length(which(z == 1)) / sum(z)))
+      }
+      return(out)
+    }))
+
+    out <- list(samples = rownames(reads), hill_table = out, nboot = nboot, nsteps = nsteps)
+    return(out)
+}
+
+
+Water_COI_hill <- eDNA_COI_2017_index_species %>% 
+  hill_rarefaction() 
+
+Water_COI_hill$hill_table %>% 
+  ggplot() +
+  geom_line(aes(reads, D0, color = pcr_id)) +
+  theme(legend.position = "none")
+
+Net_COI_hill <- Net_COI_2017_index_species %>% 
+  hill_rarefaction() 
+
+
+Water_COI_hill$hill_table
+  
+  ggplot() +
+  geom_line(aes(reads, D0, color = pcr_id)) +
+  theme(legend.position = "none")
+
+Net_COI_hill$hill_table %>% 
+  ggplot() +
+  geom_line(aes(reads, D0, color = pcr_id)) +
+  theme(legend.position = "none")
+
+
+
+Water_COI_hill$hill_table %>% 
+  rename(Sample = pcr_id) %>% 
+  left_join(select(eDNA_COI_2017_index_species,
+                   Sample, Depth, Date),
+            by = "Sample") %>%
+  ggplot() +
+  geom_line(aes(reads, D1, group = Sample, color = as.character(month(Date)))) +
+  #theme(legend.position = "none") +
+  scale_color_discrete(seasonal_colors) +
+  facet_grid("Depth")
+```
+
+
+
 
 
 
