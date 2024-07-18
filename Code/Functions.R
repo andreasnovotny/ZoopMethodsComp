@@ -12,22 +12,22 @@
 #' @param sample (Required) Data variable with sample ID.
 #' @param taxa (Required) Data variable with taxa ID.
 #' @param abundance (Required) Data variable with sequence read counts (raw or rarefied).
-#' @param ... (Optional) Other data variables to be preserved.
+#' @param ... (Optional) Other sample data variables to be preserved.
 #' @param na.rep (Optional) Value to replace NA in abundance variable. Default: 0.
 #' @param extreme.perc (Optional) Value defining upper percentile for extreme values. Default: 0.99. If no adjustment wanted: 1.
 #' @value Same data class as input.
 #' 
-#' @exaple
-#' df_18S %>%
-#'  index_RA(sample = Library_ID,
-#'          taxa = Genus,
-#'          abundance = Abundance,
-#'          Depth, Date)
+#' @example
+#' df_18S %>% index_RA(
+#'    sample = Library_ID,
+#'    taxa = Genus,
+#'    abundance = Abundance,
+#'    Depth, Date)
 
 index_RA <- function(data, sample, taxa, abundance, ...,
                      na.rep = 0, extreme.perc = 0.99) {
   
-  out <- data %>%
+  output <- data %>%
     
     # 1. Replace NA
     mutate("{{abundance}}" := ifelse(is.na({{abundance}}),
@@ -40,8 +40,8 @@ index_RA <- function(data, sample, taxa, abundance, ...,
     
     # 3. Calculate relative abundance (RA) for each sample
     group_by({{sample}}, ...) %>% 
-    reframe(RA = {{abundance}}/sum({{abundance}}), {{taxa}},
-            {{abundance}}) %>%
+    reframe(RA = {{abundance}} / sum({{abundance}}),
+            {{taxa}}, {{abundance}}) %>%
     filter(is.na(RA) == FALSE) %>% 
     
     # 4. Remove extreme values of relative abundance
@@ -62,8 +62,7 @@ index_RA <- function(data, sample, taxa, abundance, ...,
     
     # 6. Arrange columns:
     select({{sample}}, ..., {{taxa}}, {{abundance}}, RA, RA_Index)
-  
-  return(out)
+
 }
 
 
@@ -147,5 +146,4 @@ getGenusList <- function(data, type="DNA") {
   return(List)  
   # This function returns a name vector of genera that passed filtering parameters.
 }
-
 
