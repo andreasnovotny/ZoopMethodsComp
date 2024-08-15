@@ -2,16 +2,18 @@
 title: "Comparing Methods"
 ---
 
-# \*\*\*\*\*\*\*\*\* DATA PREPARATION \*\*\*\*\*\*\*\*\*
+# 0. Background
 
-Load necessary packages and import functions.
+**Andreas Novotny 2024**
+
+This script is used to produce all graphical and statistical output for the manuscript and its supplementary material. Before starting this script, run all steps in the "prepare_datasets.Rmd"
+
+
+These packages are required for this script.
 
 ```{r}
 # Data import
-#library(googledrive)
 library(readxl)
-#library(phyloseq)
-#source("Code/Import_datasets.R")
 
 # All data format modifications and filtering and plotting
 library(tidyverse)
@@ -19,72 +21,91 @@ library(tidyverse)
 source("Code/Functions.R")
 
 # Specific plotting tools
-#library(ggVennDiagram)
 library(UpSetR)
-#library(eulerr)
-#library(ggupset)
 library(plotly)
 library(ggpubr)
 library(ggnewscale)
-#library(paletteer)
 library(viridis)
 library(cowplot)
 
 # Statistical analyses
-#library(rjags)
-#library(zoib)
 library(vegan)
 
 
 ```
 
-```{r}
-df_count_2017 %>%
-  filter(Station == "QU39") %>% 
-  group_by(Date, , `Volume Filtered(m3)`, region_name) %>% 
-  summarise() %>% 
-  arrange(Date)
-
-df_count_2017
-```
-
-
-
 # 1. Sequencing dept and negative controls.
 
-COI 
-```{r}
-# Plot ranked sequencing depth
-All_COI_data %>% 
-  seq_depth_plot() %>% 
-  plotly::ggplotly()
+In this section, we have a look at sequenced negative controls for the 18S and the COI libraries, and remove samples that have sequence depth lower than the negative controls.\
+Here we also produce statistics for annotation levels and read success.\
+\
+Plotting sequencing depth and removing low libraries for COI:
 
-# Filter out libraries with low read counts.
+```{r}
+# Plot ranked sequencing depth with threshold line
+All_COI_data %>% 
+  seq_depth_plot() +
+  theme_cowplot(12) +
+  theme(aspect.ratio = 1,
+        strip.background =element_blank()) +
+  geom_abline(intercept = 10000, linetype = 4)
+ggsave("Figure_output/Sequencing_Depth_COI.pdf", width = 7, height = 4.5)
+
+
+# Filter out libraries under threshold line
 Good_COI_data <- All_COI_data %>% 
-  group_by(Library_ID) %>% 
-  filter(sum(Abundance)>15000) %>% 
+  group_by(Library_ID) %>%
+  filter(Site_ID == "QU39") %>% 
+  filter(sum(Abundance)>10000) %>% 
   ungroup()
+
+print("Median COI library size:")
+Good_COI_data %>% 
+  group_by(Library_ID) %>% 
+  summarise(SeqDepth = sum(Abundance)) %>%
+  pull(SeqDepth) %>% median
+
+print("Number of final COI libraries:")
+Good_COI_data %>% 
+  pull(Library_ID) %>% unique %>%  length
 ```
 
+Plotting sequencing depth and removing low libraries for 18S:
 
-18S
 ```{r}
 # Plot ranked sequencing depth
 All_18S_data %>% 
-  seq_depth_plot() %>% 
-  plotly::ggplotly()
+  seq_depth_plot() +
+  theme_cowplot(12) +
+  theme(aspect.ratio = 1,
+        strip.background =element_blank()) +
+  geom_abline(intercept = 10000, linetype = 4)
+ggsave("Figure_output/Sequencing_Depth_18S.pdf" , width = 7, height = 4.5)
 
 # Filter out libraries with low read counts.
 Good_18S_data <- All_18S_data %>% 
   group_by(Library_ID) %>% 
-  filter(sum(Abundance)>8000) %>% 
-  ungroup()
+  filter(sum(Abundance)>10000) %>% 
+  ungroup() 
+
+print("Median 18S library size:")
+Good_18S_data %>% 
+  group_by(Library_ID) %>%
+  filter(Site_ID == "QU39") %>% 
+  summarise(SeqDepth = sum(Abundance)) %>%
+  pull(SeqDepth) %>%median
+
+print("Number of final 18S libraries:")
+Good_18S_data %>% 
+  pull(Library_ID) %>% unique %>%  length
 ```
 
-## Check library size ect TODO
+## Annotation success
+
+This first plot shows the relative abundance of Metazooans, compared to other organisms for 18S and COI.
 
 ```{r}
-
+# Calculate % metazoans for all samples in 18S data
 summary_18S <- Good_18S_data %>% 
   filter(Site_ID == "QU39",
          year(Sample_date) == 2017) %>% 
@@ -98,6 +119,7 @@ summary_18S <- Good_18S_data %>%
   filter(sum(Abundance)>0) %>% 
   mutate(Marker = "18S")
 
+# Calculate % metazoans for all samples in COI data
 summary_COI <- Good_COI_data %>% 
   filter(Site_ID == "QU39",
          year(Sample_date) == 2017) %>% 
@@ -111,13 +133,14 @@ summary_COI <- Good_COI_data %>%
   group_by(Library_ID) %>% 
   filter(sum(Abundance)>0) %>% 
   mutate(Marker = "COI")
-  
 
+# Merge and plot
 bind_rows(summary_18S, summary_COI) %>%
-  filter(Kingdom == "Animalia") %>%
+  filter(Kingdom == "Animalia") %>% 
+  mutate(Sampling_depth = ifelse(Sampling_depth == "230", "260", Sampling_depth)) %>% 
   mutate(Sampling_depth = factor(Sampling_depth,
                                    levels= c("0", "5", "30",
-                                             "100", "260", "230-0", "230"))) %>%
+                                             "100", "260", "230-0"))) %>%
   ggplot() +
   geom_boxplot(aes(Sampling_depth, RA, color = Marker)) +
   theme_cowplot(12) +
@@ -125,16 +148,55 @@ bind_rows(summary_18S, summary_COI) %>%
         strip.background =element_blank()) +
   scale_color_manual(values = c('#377eb8','#4daf4a'))
 
+ggsave("Figure_output/Metazoan_reads.pdf", width = 4, height = 4)
+
 ```
+
+This plot shows the distribution of annotation success for COI and 18S data, for all taxonomic levels in the MetaZoogene database. 
+```{r}
+success_18S <- Good_18S_data %>% 
+  mutate(Annotation_level = as.numeric(Annotation_level)) %>% 
+  mutate(ASV = paste(MiSeq_library, ASV, sep = "_")) %>% 
+  group_by(ASV) %>% 
+  summarise(Annotation_level = mean(Annotation_level)) %>% 
+  group_by(Annotation_level) %>% 
+  summarise(n = n()) %>% 
+  mutate(marker = "18S") %>% 
+  mutate(n = n/sum(n))
+
+success_COI <- Good_COI_data %>% 
+  mutate(Annotation_level = as.numeric(Annotation_level)) %>% 
+  mutate(ASV = paste(MiSeq_library, ASV, sep = "_")) %>% 
+  group_by(ASV) %>% 
+  summarise(Annotation_level = mean(Annotation_level)) %>% 
+  group_by(Annotation_level) %>% 
+  summarise(n = n()) %>% 
+  mutate(marker = "COI") %>% 
+  mutate(n = n/sum(n))
+success_COI
+
+bind_rows(success_18S, success_COI) %>% 
+  ggplot() +
+  geom_bar(aes(Annotation_level, n, fill = marker),
+           stat = "identity", position = "dodge") +
+  theme_cowplot(12) +
+  theme(aspect.ratio = 1,
+        strip.background =element_blank()) +
+  scale_fill_manual(values = c('#377eb8','#4daf4a'))
+ggsave("Figure_output/Annotation_Depth.pdf", width = 4, height = 4)
+
+```
+
+***RESULT***: COI has a notably higher percentage of Metazooan reads annotated, compared to 18S. Hoverver, this distinction is only present for water filers and not for barcoded zooplankton net samples.
 
 # 2. Subset and calculate eDNA indexes of data sets:
 
 In this section the different data formats of the 2017 QU39 time series will be mutated into similar data shapes and transformed in such a way that the data types can be compared. To keep filtering parameters equal for all data types, a set of functions are first defined, that are then executed for all data sets. Comparisons are done both at species and at genus level.
 
-
-### Net Microscopy
+### Transforming Microscopy data:
 
 Microscopy count data from integrated zooplankton net tows:
+
 ```{r}
 # Species
 Net_count_2017_index_species <- df_count_2017 %>% 
@@ -157,6 +219,9 @@ Net_count_2017_index_genus <- df_count_2017 %>%
   index_RA(Sample, Taxa, Abundance, Depth, Date)
 ```
 
+### Transforming DNA data:
+
+The DNA datasets are transformed identical to the microscopy data sets. Due to their similarity, a generalized function is first created, then executed for the data sets and taxonomic levels individually.
 
 ```{r}
 calculate_index <- function(data, taxrank, project) {
@@ -189,152 +254,6 @@ EtOH_COI_2017_index_genus <- calculate_index(Good_COI_data, Genus, "EtOH_sup")
 ```
 
 
-## 2.1 Rarefaction curves
-
-### Sample-wise rarefaction
-```{r}
-
-rarefaction_s <- function(df, marker) {
-
-  accum <- df %>% 
-    # Turn data into community df
-    group_by(Taxa, Sample) %>% 
-    summarise(Abundance = sum(Abundance)) %>% 
-    pivot_wider(names_from = "Taxa", values_from = "Abundance") %>%
-    column_to_rownames("Sample") %>% 
-    # Use Vegan to fit accumulation curve
-    specaccum() %>% 
-    fitspecaccum(model = "arrhenius")
-  
-  # Extract model output
-  accum_df <- data.frame(Sites=accum$sites, Richness=accum$richness, SD=accum$sd) %>% 
-    mutate(Marker = marker)
-}
-
-Net_COI_rs <- Net_COI_2017_index_species %>%
-  rarefaction_s("Net COI")
-
-Water_COI_rs <- eDNA_COI_2017_index_species %>%
-  rarefaction_s("Water COI")
-
-Net_18S_rs <- Net_18S_2017_index_species %>%
-  rarefaction_s("Net 18S")
-
-Water_18S_rs <- eDNA_18S_2017_index_species %>%
-  rarefaction_s("Water 18S")
-
-Net_Microscopy_rs <- Net_count_2017_index_species %>%
-  rarefaction_s("Net Microscopy")
-
-
-bind_rows(Net_COI_rs, Water_COI_rs, Net_18S_rs, Water_18S_rs, Net_Microscopy_rs) %>% 
-  ggplot() +
-  #geom_point(aes(x = Sites, y = Richness, color = Marker)) +
-  geom_line(aes(x = Sites, y = Richness, color = Marker)) +
-  geom_ribbon(aes(x = Sites, ymin = (Richness-2*SD), ymax=(Richness+2*SD), fill = Marker),alpha=0.2)+
-  theme_bw()
-
-data(BCI)
-BCI
-```
-
-
-```{r}
-
-hill_rarefaction <- function(data, nboot = 10, nsteps = 10) {
-
-  reads <- data %>% 
-    # Turn data into community df
-    group_by(Taxa, Sample) %>% 
-    summarise(Abundance = sum(Abundance)) %>% 
-    pivot_wider(names_from = "Taxa", values_from = "Abundance") %>%
-    column_to_rownames("Sample")
-
-    out <- do.call("rbind", lapply(rownames(reads), function(y) {
-      # sample sizes
-      if (sum(reads[y, ]) > 2000) {
-        rsize <- c(
-          5, 10, 100, 200, 500, 1000,
-          round(seq(2000, sum(reads[y, ]), length.out = nsteps))
-        )
-      } else {
-        rsize <- c(1, round(seq(2, sum(reads[y, ]), length.out = nsteps)))
-      }
-
-      # assess estimates at depths rsize
-      out <- data.frame(
-        pcr_id = y, reads = rsize,
-        D0 = NA, D0.sd = NA,
-        D1 = NA, D1.sd = NA,
-        D2 = NA, D2.sd = NA,
-        coverage = NA, coverage.sd = NA
-      )
-      for (s in 1:length(rsize)) {
-        # rarefaction
-        r <- lapply(1:nboot, function(z) {
-          rtmp <- rrarefy(reads[y, ], rsize[s])
-          rtmp[rtmp > 0]
-        })
-        out[s, "D0"] <- mean(sapply(r, function(z) length(z)))
-        out[s, "D0.sd"] <- sd(sapply(r, function(z) length(z)))
-        out[s, "D1"] <- exp(mean(sapply(r, function(z) diversity(z, index = "shannon"))))
-        out[s, "D1.sd"] <- exp(sd(sapply(r, function(z) diversity(z, index = "shannon"))))
-        out[s, "D2"] <- mean(sapply(r, function(z) diversity(z, index = "invsimpson")))
-        out[s, "D2.sd"] <- sd(sapply(r, function(z) diversity(z, index = "invsimpson")))
-        out[s, "coverage"] <- mean(sapply(r, function(z) 1 - length(which(z == 1)) / sum(z)))
-        out[s, "coverage.sd"] <- sd(sapply(r, function(z) 1 - length(which(z == 1)) / sum(z)))
-      }
-      return(out)
-    }))
-
-    out <- list(samples = rownames(reads), hill_table = out, nboot = nboot, nsteps = nsteps)
-    return(out)
-}
-
-
-Water_COI_hill <- eDNA_COI_2017_index_species %>% 
-  hill_rarefaction() 
-
-Water_COI_hill$hill_table %>% 
-  ggplot() +
-  geom_line(aes(reads, D0, color = pcr_id)) +
-  theme(legend.position = "none")
-
-Net_COI_hill <- Net_COI_2017_index_species %>% 
-  hill_rarefaction() 
-
-
-Water_COI_hill$hill_table
-  
-  ggplot() +
-  geom_line(aes(reads, D0, color = pcr_id)) +
-  theme(legend.position = "none")
-
-Net_COI_hill$hill_table %>% 
-  ggplot() +
-  geom_line(aes(reads, D0, color = pcr_id)) +
-  theme(legend.position = "none")
-
-
-
-Water_COI_hill$hill_table %>% 
-  rename(Sample = pcr_id) %>% 
-  left_join(select(eDNA_COI_2017_index_species,
-                   Sample, Depth, Date),
-            by = "Sample") %>%
-  ggplot() +
-  geom_line(aes(reads, D1, group = Sample, color = as.character(month(Date)))) +
-  #theme(legend.position = "none") +
-  scale_color_discrete(seasonal_colors) +
-  facet_grid("Depth")
-```
-
-
-
-
-
-
-# \*\*\*\*\*\*\*\*\* RESULTS OUTPUT \*\*\*\*\*\*\*\*\*
 
 # 3. Coverage comparison of taxonomic markers
 
@@ -521,7 +440,6 @@ ggsave("Figure_output/Biomass_fractions.pdf", width = 7, height = 4.5)
 
 ```
 
-
 ### Conclusions:
 
 1.  18S Cannot be used to identify taxa at species level, the gene is to conserved.
@@ -535,7 +453,6 @@ ggsave("Figure_output/Biomass_fractions.pdf", width = 7, height = 4.5)
 ## 3.4. Exclusive taxa
 
 So the DNA methods combined targets 50-70% of zooplankton my biomass. Here we investigate the remaining genera, that remains un-targeted by the DNA methods. The Genera are ordered by relative biomass contribution.
-
 
 ```{r}
 Net_count_2017_index_genus %>% 
@@ -557,7 +474,7 @@ microscopy_and_DNA <- Net_count_2017_index_genus %>%
   group_by(Taxa) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
   mutate(RA = Abundance/sum(Abundance)) %>% 
-  filter(RA > 0.005) %>% 
+  filter(RA > 0.000) %>% 
   mutate(Type = "Microscopy and DNA")
 
 microscopy_and_DNA %>%  pull(RA) %>% sum 
@@ -573,7 +490,7 @@ only_microscopy <- Net_count_2017_index_genus %>%
   group_by(Taxa) %>% 
   summarize(RA = mean(RA)) %>%
   #reframe(RA = Biomass/sum(Biomass), Taxa) %>% 
-  filter(RA > 0.005) %>% 
+  filter(RA > 0.000) %>% 
   mutate(Type = "Only by Microscopy")
 
 
@@ -673,7 +590,6 @@ Net_merged_data <-
   filter(is.na(Molecular) == FALSE,
          is.na(Microscopy) == FALSE)
 
-Net_merged_data
 
 
 ```
@@ -797,37 +713,8 @@ bind_rows(
 
 ```
 
-COI
-
-```{r}
-seasonal_colors = c("#053061", "#3288BD", "#66C2A5", "#7FBC41",
-                    "#A6D96A", "#FEE08B", "#FDAE61", "#F46D43",
-                    "#D53E4F", "#9E0142", "#67001F", "#40004B")
 
 
-
-bind_rows(mod1$NMDS.scores, mod2$NMDS.scores, mod3$NMDS.scores) %>% 
-  pivot_wider(names_from = Layer,
-              values_from = c(NMDS1, NMDS2)) %>%
-  mutate(Month = format(as.Date(Date), format="%m")) %>%
-  mutate(Index_Type = ifelse(Index_Type == "RA_Index", "eDNA Index", Index_Type)) %>% 
-  mutate(Index_Type = factor(Index_Type, levels = c("RA", "PA", "eDNA Index"))) %>% 
-  
-  ggplot(aes(NMDS1_Samples, NMDS2_Samples)) +
-  geom_text(aes(NMDS1_Taxa*1.1, NMDS2_Taxa*1.1, label = Taxa),
-            size = 3, colour = "grey", fontface = "italic") +
-  geom_line(aes(color = Month, group = Date), linetype = "dotted") +
-  geom_point(aes(shape = Method, color = Month), size = 3) +
-  facet_wrap("Index_Type", scales = "free", ncol = 2) +
-  theme_minimal_grid(12) +
-  theme(aspect.ratio = 1) +
-  scale_color_manual(values = seasonal_colors)
-
-ggsave("Figure_output/NMDS_COI.pdf", width = 8, height = 7)
-
-```
-
-18S
 ```{r}
 seasonal_colors = c("#053061", "#3288BD", "#66C2A5", "#7FBC41",
                     "#A6D96A", "#FEE08B", "#FDAE61", "#F46D43",
@@ -861,10 +748,6 @@ ggsave("Figure_output/NMDS_both.pdf", width = 8, height = 10)
 
 
 ```
-
-
-
-
 
 ### Permanova
 
@@ -953,209 +836,6 @@ species_list %>%
 ggsave("./Figure_output/slope_differences.pdf", width = 4, height = 5)
 ```
 
-## 4.3 Slope correction - new try
-
-```{r}
-Net_merged_data_COI <- Net_merged_data %>% 
-  filter(Gene_Marker == "COI")
-
-
-#Create new tables for regression summary and calculate coefficients 
-species_list <- data.frame(Taxa = unique(Net_merged_data_COI$Taxa),
-                           RA_Rsq = 0,
-                           #I_Rsq = 0,
-                           
-                           RA_p.val = 0,
-                           #I_p.val = 0,
-                           
-                           RA_B0 = 0,
-                           I_B0 = 0,
-                           
-                           RA_slope = 0,
-                           I_slope = 0)
-
-
-for(i in 1:length(species_list$Taxa)){ #Start of loop
-  RA <- Net_merged_data_COI %>% 
-    filter(Taxa == species_list$Taxa[i],
-           Index_Type == "RA")
-  RA_I <- Net_merged_data_COI %>% 
-    filter(Taxa == species_list$Taxa[i],
-           Index_Type == "RA_Index")
-  
-  lm1 <- lm(sqrt(Microscopy) ~ sqrt(Molecular), data = RA)
-  lm2 <- lm(sqrt(Microscopy) ~ sqrt(Molecular), data = RA_I)
-  species_list$RA_Rsq[i] <- summary(lm1)$adj.r.squared
-  species_list$RA_p.val[i] <- summary(lm1)$coefficients[2,4]
-  species_list$RA_B0[i] <- lm1$coefficients[1]
-  species_list$RA_slope[i] <- lm1$coefficients[2]
-  #species_list$I_Rsq[i] <- summary(lm2)$adj.r.squared
-  #species_list$I_p.val[i] <- summary(lm2)$coefficients[2,4]
-  species_list$I_B0[i] <- lm2$coefficients[1]
-  species_list$I_slope[i] <- lm2$coefficients[2]
-
-}
-
-species_list
-```
-
-```{r}
-Net_merged_data_COI
-
-
-# Calculate slopes and maximum relative contribution per Taxa
-adj_COI <- Net_merged_data_COI %>%
-  select(Taxa, Date, Index_Type, Molecular) %>% 
-  pivot_wider(names_from = Index_Type, values_from = Molecular) %>% 
-  mutate(RA_adj = Abundance) %>% 
-  group_by(Date) %>% 
-  mutate(Total_Abundance = sum(Abundance))
-adj_COI
-slopes <- adj_COI %>% 
-  group_by(Taxa)  %>%
-  summarise(max_contribution = max(RA)) %>% 
-  merge(species_list, by="Taxa")
-
-# Adjust slopes not to be corrected for
-slopes
-#slopes[slopes$RA_Rsq < 0.3,]$RA_slope <- 1
-#slopes[slopes$RA_p > 0.05,]$RA_slope <- 1
-#slopes[slopes$RA_slope > 0.6 & slopes$RA_slope < 1,4,]$RA_slope <- 1
-slopes[is.na(slopes)]<-1
-
-slopes <- slopes %>% 
-  arrange(desc(max_contribution))
-
-slopes
-
-
-
-for(j in 1:nrow(slopes)){
-  Species <- slopes$Taxa[j]
-  Slope <- slopes$RA_slope[j]^2
-  adj_COI[adj_COI$Taxa == Species,]$RA_adj <- (Slope*(adj_COI[adj_COI$Taxa == Species,]$Total_Abundance* adj_COI[adj_COI$Taxa == Species,]$RA_adj-adj_COI[adj_COI$Taxa == Species,]$RA_adj^2))/(adj_COI[adj_COI$Taxa == Species,]$Total_Abundance - Slope* adj_COI[adj_COI$Taxa == Species,]$RA_adj)
-  adj_COI <- adj_COI %>%
-    group_by(Date) %>%
-    mutate(Total_Abundance = sum(RA_adj))
-}
-
-
-adj_COI <- adj_COI %>%
-  group_by(Date) %>% 
-  mutate(RA_adj = RA_adj/sum(RA_adj))
-
-
-Net_merged_data_COI
-adjusted_data <- Net_merged_data_COI %>%
-  select(Taxa, Date, Index_Type, Microscopy) %>% 
-  pivot_wider(names_from = Index_Type, values_from = Microscopy) %>% 
-  left_join(adj_COI, by = c("Taxa", "Date"), suffix = c("_Microscopy", "_COI"))
-
-adjusted_data
-
-
-```
-
-```{r}
-adjusted_data %>% 
-  ggplot(aes(RA_Microscopy, RA_COI)) +
-  geom_point() +
-  geom_smooth(aes(group = Taxa), color = "grey", method = lm, se=F) +
-  geom_smooth(color = "red", method = lm, se=F)
-```
-
-```{r}
-adjusted_data %>% 
-  ggplot(aes(RA_Microscopy, RA_adj)) +
-  geom_point() +
-  geom_smooth(aes(group = Taxa), color = "grey", method = lm, se=F) +
-  geom_smooth(color = "red", method = lm, se=F) +
-  ylim(0, 1) +
-  xlim(0,1)
-  
-```
-
-```{r}
-tmp <- adjusted_data %>% 
-  select(Taxa, Date, RA_Microscopy, RA_adj) %>% 
-  pivot_longer(3:4, names_to = "Method", values_to = "Value") %>%
-  mutate(Value = ifelse(Value < 0, 0, Value)) %>% 
-  transmute(Sample = paste(Date, Method, sep = "_"),
-            Taxa, Value) %>% 
-  pivot_wider(names_from = Taxa, values_from = Value) %>% 
-  column_to_rownames("Sample") %>% 
-  as.matrix()
-
-tmp
-
-mod <- metaMDS(tmp, trymax = 100)
-stressplot(mod)
-print(mod)
-
-NMDS_scores(mod) %>% 
-  filter(Layer == "Samples") %>% 
-  mutate(Month = format(as.Date(Date), format="%m")) %>% 
-  
-  ggplot(aes(NMDS1, NMDS2)) +
-  geom_line(aes(color = Month, group = Date), linetype = "dotted") +
-  geom_point(aes(shape = Method, color = Month), size = 3) +
-  theme_bw()
-
-```
-
-```{r}
-#Part 2. Adjust seq_count by slopes
-
-#meta_long - MOTU data table in long format with the following columns:
-#Station = Station name
-#Preservative = ethanol or dry
-#Species = Species or taxa name as identified by metabarcoding
-#Morph.id = Species or taxa name at the lowest common taxonomic level with microscopy analysis (for example all species belonging to Cirripedia are assigned as Cirripedia)
-#seq_count = number of sequence reads in the sample
-#percent_count = relative proportion of reads in a sample (0-1)
-#Total.reads = total sequence reads in the sample
-
-#Slopes_DW - data table with the following columns, from the previous step:
-#Morph.id = Species or taxa name at the lowest common taxonomic level with microscopy analysis (for example all species belonging to Cirripedia are assigned as Cirripedia)
-#slope = slope of the regression line between square-root transformed proportion biomass and square-root transformed proportion sequence reads
-#Rsq = strength of the regression
-#p.val = significance of the regression
-
-#calculate maximum contribution of each species/taxa
-contr <- meta_long %>%
-  group_by(Morph.id)  %>%
-  summarise(max_contribution = max(percent_count))
-
-#merge with slopes table
-slopes1 <- merge(Slopes, contr, by="Morph.id")
-
-#do not adjust taxa (slope=1) where the following conditions are not met:
-#R2<=0.3, p<=0.05, slope<=0.6 OR slope>=1.4
-
-slopes1[slopes1$Rsq > 0.3,]$slope <- 1
-slopes1[slopes1$p.sig > 0.05,]$slope <- 1
-slopes1[slopes1$slope > 0.6 & slopes1$slope < 1,4,]$slope <- 1
-slopes1[is.na(slopes1)]<-1
-
-#Sort taxa in descending order by contribution
-slopes1 <- slopes %>% 
-  arrange(desc(max_contribution))
-
-#Make new column seq_count_adj, by default equal to seq_count (no adjustment)
-meta_long$seq_count_adj <- meta_long$seq_count
-
-#Apply conversion factors one by one and recalculate Total.reads
-
-for(j in 1:nrow(slopes1)){
-  Species <- slopes1$Morph.id[j]
-  Slope <- slopes1$slope[j]^2
-  meta_long[meta_long$Morph.id == Species,]$seq_count_adj <- (Slope*(meta_long[meta_long$Morph.id == Species,]$Total.reads* meta_long[meta_long $Morph.id == Species,]$seq_count_adj-meta_long[meta_long$Morph.id == Species,]$seq_count_adj^2))/(meta_long[meta_long$Morph.id == Species,]$Total.reads - Slope* meta_long[meta_long$Morph.id == Species,]$seq_count_adj)
-  meta_long <- meta_long %>%
-    group_by(Station, Preservative) %>%
-    mutate(Total.reads = sum(seq_count_adj))
-}
-```
-
 # 5. Temporal comparison of taxonomic markers
 
 The aim of this section is to compare if seasonal patterns of RA_index overlap between the different markers and methods. Zooplankton net tows (Count, COI and 18S) that are depth integrated (only one sample per sampling date) are plotted differently from the eDNA samples (that has a depth resolution with several samples per sampling date).\
@@ -1164,6 +844,45 @@ Genus level comparison:
 RA_Index of zooplankton net samples, analysed with the three different markers:
 
 ```{r}
+tmp <- bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
+          mutate(Net_COI_2017_index_genus, marker = "COI"),
+          mutate(Net_18S_2017_index_genus, marker = "18S")) 
+
+order <- tmp %>% 
+  group_by(Taxa, marker) %>% 
+  summarize(Abundance = sum(Abundance)) %>% 
+  pivot_wider(names_from = "marker", values_from = "Abundance") %>% 
+  arrange(-Count) %>% 
+  pull(Taxa)
+
+#Combine the three data sets
+tmp %>% 
+  
+  # Filter relevant taxa:
+  filter(Taxa %in% GenusList) %>%
+  mutate(marker = factor(marker, levels = c("Count", "COI", "18S"))) %>%
+  mutate(Taxa = factor(Taxa, levels = c(order))) %>% 
+  
+  # Plot
+  ggplot() +
+  geom_line(aes(Date, RA_Index, color = marker, linetype = marker)) +
+  facet_wrap(facets = "Taxa", ncol = 3) +
+  theme_minimal_hgrid() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        strip.text = element_text(face = "italic"),
+        legend.position="none",
+        panel.background = element_rect(fill = '#F5F5F5', colour = 'darkgrey'),
+        aspect.ratio = 1/2.5) +
+  scale_color_manual(values = c('#fec44f','#4daf4a','#377eb8'))
+
+ggsave("Figure_output/Seasonal_Bulk_Genus.pdf", width = 8, height = 10)
+
+
+
+```
+```{r}
+##### SUPERNATANT COI ONLY #######
+
 #Combine the three data sets
 bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
           mutate(Net_COI_2017_index_genus, marker = "COI_bulk"),
@@ -1197,35 +916,6 @@ mutate(EtOH_COI_index, marker = "COI_sup") %>%
 EtOH_COI_index
 ```
 
-
-
-```{r}
-#Combine the three data sets
-bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
-          mutate(Net_COI_2017_index_genus, marker = "COI"),
-          mutate(Net_18S_2017_index_genus, marker = "18S")) %>% 
-  
-  # Filter relevant taxa:
-  filter(Taxa %in% GenusList) %>%
-  mutate(marker = factor(marker, levels = c("Count", "COI", "18S"))) %>% 
-  
-  # Plot
-  ggplot() +
-  geom_line(aes(Date, RA_Index, color = marker, linetype = marker)) +
-  facet_wrap(facets = "Taxa", ncol = 6) +
-  theme_minimal_hgrid() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
-        strip.text = element_text(face = "italic"),
-        legend.position="none",
-        panel.background = element_rect(fill = '#F5F5F5', colour = 'darkgrey'),
-        aspect.ratio = 1/2.5) +
-  scale_color_manual(values = c('#fec44f','#4daf4a','#377eb8'))
-
-ggsave("Figure_output/Seasonal_Bulk_Genus.pdf", width = 12, height = 7)
-```
-
-
-
 RA_index of eDNA samples, the average of 18S and COI.
 
 ```{r}
@@ -1249,88 +939,64 @@ data <-  eDNA %>%
          Taxa %in% pull(eDNA, Taxa)) %>% 
   
   # Modify the parameter shown on the categorical Y axis. That is depth for eDNA samples and Marker for Net samples". 
-  mutate(y = ifelse(marker == "eDNA", Depth, marker),
-         y = factor(y, levels = rev(c("Count", "COI", "18S", "0", "5", "30", "100", "260"))))
+  mutate(y = ifelse(marker == "eDNA", Depth, marker)) %>% 
+  mutate(y = factor(y, levels = rev(c("Count", "COI", "18S", "0", "5", "30", "100", "260")))) %>% 
+  mutate(Taxa = factor(Taxa, levels = order))
  
- 
+
 data %>% ggplot() +
+  
+  # Add filter water data:
   geom_point(
     mapping = aes(Date, y, color = RA_Index),
-    data = filter(data, y %!in% c("Count", "COI", "18S")),
+    #data = filter(data, y %!in% c("Count", "COI", "18S")),
     shape = 15) +
   scale_color_gradient2(
     high = '#984ea3', low = "white") +
-  
-  new_scale_color() +
 
+  # Add Microscopy data
+  new_scale_color() +
   geom_point(
     mapping = aes(Date, y, color = RA_Index),
     data = filter(data, y %in% c("Count")),
     shape = 15) +
   scale_color_gradient2(high = '#fec44f',
                        low = "white") +
-  
-  #new_scale_color() +
-  
+
+  # Add Net COI data:
+  new_scale_color() +
   geom_point(
-    mapping = aes(Date, y, color = RA_Index),
-    data = filter(data, y %in% c("COI")),
-    shape = 15)
-
-  
-
-filter(data, y %in% c("COI")) %>% 
-  ggplot() +
-  geom_point(
-    aes(Date, y, color = RA_Index),
-    shape = 15) +
-  scale_color_gradient2(high = '#fec44f')
-
-
-```
-
-
-```{r}
-new_scale_color() +
-
-  geom_point(
-    aes(Date, y, color = RA_Index),
-    filter(data, y %in% c("Count")),
-    shape = 15) +
-  scale_color_gradient2(high = '#fec44f',
-                       low = "white") +
-  
-    new_scale_color() +
-  
-
-    geom_point(
     aes(Date, y, color = RA_Index),
     filter(data, y %in% c("COI")),
     shape = 15) +
   scale_color_gradient2(high = '#4daf4a',
-                      low = "white")
-
-      new_scale_color() +
+                      low = "white") +
   
+  # Add Net 18S data:
+  new_scale_color() +
   geom_point(
     aes(Date, y, color = RA_Index),
     filter(data, y %in% c("18S")),
     shape = 15) +
-  facet_wrap(facets = "Taxa", ncol = 5) +
   scale_color_gradient2(high = '#377eb8',
                        low = "white") +
   
+  
+  # Set plot themes
   theme_map() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
         strip.text = element_text(face = "italic"),
         legend.position="none",
         panel.background = element_rect(fill = '#F5F5F5', colour = 'darkgrey'),
-        aspect.ratio = 1/2.5)
+        aspect.ratio = 1/2.5) +
+  facet_wrap("Taxa", ncol = 3)
 
 ggsave("Figure_output/Seasonal_Comb_Genus_press.pdf", width = 7, height = 10)
 
 data %>% 
-  pull(y) %>%  unique
+  pull(y) %>% unique
+
+data
   
 
 
@@ -1340,15 +1006,25 @@ data %>%
 
 ```{r}
 
-bind_rows(mutate(Net_count_2017_index_species, marker = "Count"),
+tmp <- bind_rows(mutate(Net_count_2017_index_species, marker = "Count"),
           mutate(Net_COI_2017_index_species, marker = "COI_bulk"),
-          mutate(EtOH_COI_2017_index_species, marker = "COI_sup")) %>% 
+          mutate(EtOH_COI_2017_index_species, marker = "COI_sup"))
+
+order <- tmp %>% 
+  group_by(Taxa, marker) %>% 
+  summarize(Abundance = sum(Abundance)) %>% 
+  pivot_wider(names_from = "marker", values_from = "Abundance") %>% 
+  arrange(-Count) %>% 
+  pull(Taxa)
+
+tmp %>%
   filter(Taxa %in% SpeciesList) %>%
   mutate(marker = factor(marker, levels = c("Count", "COI_bulk", "COI_sup"))) %>%
+  mutate(Taxa = factor(Taxa, levels = order)) %>% 
   ggplot() +
   geom_line(aes(Date, RA_Index, color = marker,  linetype = marker)) +
   facet_wrap(facets = "Taxa", ncol = 3) +
-  theme_minimal_hgrid(10) +
+  theme_minimal_hgrid(8) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
         strip.text = element_text(face = "italic"),
         #legend.position="none",
@@ -1360,80 +1036,3 @@ bind_rows(mutate(Net_count_2017_index_species, marker = "Count"),
 ggsave("Figure_output/Seasonal_Bulk_Species.pdf", width = 10, height = 7)
 ```
 
-## Comnined plot species level
-
-```{r}
-data <- bind_rows(mutate(Net_count_2017_index_species, marker = "Count"),
-                  mutate(Net_COI_2017_index_species, marker = "COI"),
-                  mutate(eDNA_COI_2017_index_species, marker = "eDNA"),
-                  tibble(marker = "_", Date = ymd("2017-01-01"),
-                         RA_Index = 0, Taxa = "Acartia longiremis")) %>% 
-  filter(Taxa %in% SpeciesList,
-         Taxa %in% pull(eDNA_COI_2017_index_species, Taxa)) %>% 
-  mutate(y = ifelse(marker == "eDNA", Depth, marker),
-         y = factor(y, levels = rev(c("Count", "COI", "_", "0", "5", "30", "100", "260"))))
-
-
-data %>% ggplot() +
-  geom_point(
-    aes(Date, y, color = RA_Index),
-    #filter(data, y %!in% c("Count", "COI")),
-    shape = 15) +
-  facet_wrap(facets = "Taxa", ncol = 3) +
-  scale_color_gradient2(high = '#4daf4a',
-                       low = "white") +
-  
-  new_scale_color() +
-  
-  geom_point(
-    aes(Date, y, color = RA_Index),
-    filter(data, y %in% c("Count")),
-    shape = 15) +
-  facet_wrap(facets = "Taxa", ncol = 3) +
-  scale_color_gradient2(high = '#fec44f',
-                       low = "white") +
-  
-    new_scale_color() +
-  
-  geom_point(
-    aes(Date, y, color = RA_Index),
-    filter(data, y %in% c("COI")),
-    shape = 15) +
-  facet_wrap(facets = "Taxa", ncol = 3) +
-  scale_color_gradient2(high = '#4daf4a',
-                       low = "white") +
-  
-  theme_map() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
-        strip.text = element_text(face = "italic"),
-        legend.position="none",
-        panel.background = element_rect(fill = '#F5F5F5', colour = 'darkgrey'),
-        aspect.ratio = 1/2.5)
-
-ggsave("Figure_output/Seasonal_comb_Species.pdf", width = 7, height = 10)
-
-```
-
-
-# OUTDATED CODE
-
-## Define Metazoa
-
-Specifying global filtering parameter: What phyla are present in metazoa?
-```{r}
-metazoa <- c("Arthropoda",
-             "Cnidaria",
-             "Chaetognatha",
-             "Annelida",
-             "Porifera",
-             "Echinodermata",
-             "Mollusca",
-             "Phoronida",
-             "Bryozoa",
-             "Nemertea",
-             "Ctenophora",
-             "Priapulida",
-             "Rotifera",
-             "Chordata",
-             "Platyhelminthes")
-```

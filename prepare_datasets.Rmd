@@ -338,34 +338,34 @@ All_18S_data
 
 alt: 18S with PR2 database:
 ```{r}
-merge_18S_pr2 <- function(Run,
-                      Taxtab = "tax_tab_18S_pr2.RDS",
-                      Samptab = Samptab_18S_all,
-                      Group = NA) {
-  merge_ASV_Tax_Samp(Run, Taxtab, Samptab, Group)
-}
+#merge_18S_pr2 <- function(Run,
+#                      Taxtab = "tax_tab_18S_pr2.RDS",
+#                      Samptab = Samptab_18S_all,
+#                      Group = NA) {
+#  merge_ASV_Tax_Samp(Run, Taxtab, Samptab, Group)
+#}
+#
+#
+#All_18S_data <- bind_rows(
+#  merge_18S_pr2("18S_QPKbulk_2017"),
+#  #merge_18S("18S_QU39_1", Group = "Home18S"), # Not relevant for this project
+#  #merge_18S("18S_QU39_2", Group = "Home18S"), # Not relevant for this project
+#  merge_18S_pr2("18S_QU39_3", Group = "Home18S"),
+#  merge_18S_pr2("18S_QU39_4", Group = "Home18S"),
+#  #merge_18S("18S_QU39_5", Group = "Home18S"), # Not relevant for this project
+#  #merge_18S("18S_QU39_6", Group = "Home18S"). # Not relevant for this project
+#  )
 
+#All_18S_data %>%
+#  seq_depth_plot() %>% 
+#  plotly::ggplotly()
 
-All_18S_data <- bind_rows(
-  merge_18S_pr2("18S_QPKbulk_2017"),
-  #merge_18S("18S_QU39_1", Group = "Home18S"), # Not relevant for this project
-  #merge_18S("18S_QU39_2", Group = "Home18S"), # Not relevant for this project
-  merge_18S_pr2("18S_QU39_3", Group = "Home18S"),
-  merge_18S_pr2("18S_QU39_4", Group = "Home18S"),
-  #merge_18S("18S_QU39_5", Group = "Home18S"), # Not relevant for this project
-  #merge_18S("18S_QU39_6", Group = "Home18S"). # Not relevant for this project
-  )
+#All_18S_data %>% 
+#  filter(Library_ID == "QPKBlank-18S_18S_QPKbulk_2017") %>% 
+#  arrange(-Abundance)
 
-All_18S_data %>%
-  seq_depth_plot() %>% 
-  plotly::ggplotly()
-
-All_18S_data %>% 
-  filter(Library_ID == "QPKBlank-18S_18S_QPKbulk_2017") %>% 
-  arrange(-Abundance)
-
-All_18S_data %>% 
-  filter(Project_name == "QU39")
+#All_18S_data %>% 
+#  filter(Project_name == "QU39")
 
 ```
 
@@ -393,6 +393,15 @@ df_count_2017 <- readRDS("Data_import/Microscopy/Hakai_Zooplankton_2013-2017_AN.
   mutate(Name = Taxon) %>% 
   separate(Taxon, sep= " ", into=c("Genus", "Tax1", "Tax2", "Tax3", "Tax4"))
 ```
+View filtered volume per sample
+```{r}
+df_count_2017 %>%
+  filter(Station == "QU39") %>% 
+  group_by(Date, , `Volume Filtered(m3)`, region_name) %>% 
+  summarise() %>% 
+  arrange(Date)
+```
+
 
 # TO FIX
 
