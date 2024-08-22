@@ -738,9 +738,9 @@ bind_rows(mod1$NMDS.scores, mod2$NMDS.scores, mod3$NMDS.scores,
   facet_grid(Index_Type~Gene_Marker, scales = "free") +
   theme_minimal_grid(12) +
   theme(aspect.ratio = 1,
-        panel.border = element_rect(colour = "black", fill=NA),
-        legend.position="none") +
-  scale_color_manual(values = seasonal_colors)
+        panel.border = element_rect(colour = "black", fill=NA)) +
+  scale_color_manual(values = seasonal_colors) +
+  scale_shape_manual(values=c(1, 16))
 
 ggsave("Figure_output/NMDS_both.pdf", width = 8, height = 10)
 
@@ -769,7 +769,9 @@ Net_merged_data %>%
   theme_minimal_grid() +
   facet_wrap("Index_Type", scales = "free") +
   theme(aspect.ratio = 1,
-        panel.background = element_rect(colour = 'darkgrey'))
+        panel.background = element_rect(colour = 'darkgrey')) +
+  ylim(0,1) +
+  xlim(0,1)
 
 
 ggsave("Figure_output/regression_COI.pdf", width = 7, height = 4)
