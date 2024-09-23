@@ -3,6 +3,7 @@ Data_import/
 Data_output/
 Figure_output
 Workfolder/
+Graphics/
 
 # History files
 .Rhistory

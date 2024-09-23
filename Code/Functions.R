@@ -85,9 +85,9 @@ getSpeciesList <- function(data, type = "DNA") {
     
     # Remove low occurrences.
     # Each species has to be observed in more than 2 samples.
-    filter(RA_Index > 0) %>% 
+    filter(RA_Index > 1) %>% 
     group_by(Taxa) %>%
-    filter(n() > 2) %>% 
+    filter(n() > 1) %>% 
     
     # Remove bad species names:
     # The following name patterns indicate that species level identification failed. 
@@ -130,9 +130,9 @@ getGenusList <- function(data, type="DNA") {
     
     # Remove low occurrences
     # Each genus has to be observed in more than 5 samples.
-    filter(RA_Index > 0) %>% 
+    filter(RA_Index > 1) %>% 
     group_by(Taxa) %>%
-    filter(n() > 5) %>%
+    filter(n() > 1) %>%
     
     # Remove bad genus names
     # The following name patterns indicate that genus level identification failed. 

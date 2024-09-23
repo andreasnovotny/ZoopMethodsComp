@@ -408,14 +408,19 @@ df_count_2017 %>%
 ## List contributing Hakai staff
 
 ```{r}
-personel <- Samptab_COI %>%
+
+
+
+
+personel <- All_COI_data %>%
   group_by(Sample_date) %>% 
   summarize(Sample_technician = unique(Sample_technician),
             Extraction_staff = unique(Extraction_staff)) %>%
   pivot_longer(2:3, names_to = "Task", values_to = "technician") %>% 
   separate(technician, sep = ",", into = c("A", "B", "C", "D")) %>% 
   pivot_longer(3:6, values_to = "tecnichian") %>%
-  filter(is.na(tecnichian) == FALSE) %>% 
+  filter(is.na(tecnichian) == FALSE) %>%
+  filter(year(Sample_date) == 2017) %>% 
   select(!name)
 
 # Sampling staff  
@@ -431,77 +436,5 @@ personel %>%
   group_by(tecnichian) %>% 
   summarise(Days_Extracted = n()) %>% 
   arrange(-Days_Extracted)
+  
 ```
-
-
-# 18S PR2
-
-Home 3
-```{r}
-ASV18S <- merge_ASV_Tax("18S_QU39_3", "tax_tab_18S_pr2.RDS") %>%
-  pivot_longer(11:length(.), names_to = "Library_ID", values_to = "Abundance")
-
-samples <- ASV18S %>%
-      pull(Library_ID) %>% unique()
-
-Merged <- Samptab_18S_all %>% 
-  filter(Library_ID %in% samples) %>% 
-  full_join(ASV18S, by = "Library_ID") %>%
-  filter(Library_ID != "Undetermined") %>%
-  filter(year(Sample_date) == 2017)
-
-Merged %>%
-  group_by(Hakai_ID, Sample_date, Site_ID, Line_out_depth, Time_collected,
-         Time_preserved, Sample_volume_ml) %>%
-  summarize() %>% 
-  write_csv("Data_output/Hakai_QU39_Home3_2017_Metadata.csv")
-
-
-ASV <- Merged %>%
-  select(Hakai_ID, Abundance, ASV, Kingdom, Supergroup, Division,
-         Class, Order, Family, Genus, Species) %>% 
-  pivot_wider(names_from = Hakai_ID, values_from = Abundance)
-
-sequence_H3 <- read_delim("Data_import/18S_QU39_3/sequence_ASVname_mapping.txt", 
-  delim = "\t", escape_double = FALSE, 
-  col_names = c("ASV", "Sequence"), trim_ws = TRUE) %>% 
-  left_join(ASV, by = "ASV") %>% 
-  write_csv("Data_output/Hakai_QU39_Home3_2017_ASV_pr2.csv")
-
-```
-
-Home 3
-```{r}
-ASV18S <- merge_ASV_Tax("18S_QU39_4", "tax_tab_18S_pr2.RDS") %>%
-  pivot_longer(11:length(.), names_to = "Library_ID", values_to = "Abundance")
-
-samples <- ASV18S %>%
-      pull(Library_ID) %>% unique()
-
-Merged <- Samptab_18S_all %>% 
-  filter(Library_ID %in% samples) %>% 
-  full_join(ASV18S, by = "Library_ID") %>%
-  filter(Library_ID != "Undetermined") %>%
-  filter(year(Sample_date) == 2017)
-
-Merged %>%
-  group_by(Hakai_ID, Sample_date, Site_ID, Line_out_depth, Time_collected,
-         Time_preserved, Sample_volume_ml) %>%
-  summarize() %>% 
-  write_csv("Data_output/Hakai_QU39_Home4_2017_Metadata.csv")
-
-
-ASV <- Merged %>%
-  select(Hakai_ID, Abundance, ASV, Kingdom, Supergroup, Division,
-         Class, Order, Family, Genus, Species) %>% 
-  pivot_wider(names_from = Hakai_ID, values_from = Abundance)
-
-sequence_H3 <- read_delim("Data_import/18S_QU39_4/sequence_ASVname_mapping.txt", 
-  delim = "\t", escape_double = FALSE, 
-  col_names = c("ASV", "Sequence"), trim_ws = TRUE) %>% 
-  left_join(ASV, by = "ASV") %>% 
-  write_csv("Data_output/Hakai_QU39_Home4_2017_ASV_pr2.csv")
-
-```
-
-

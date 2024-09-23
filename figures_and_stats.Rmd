@@ -21,18 +21,68 @@ library(tidyverse)
 source("Code/Functions.R")
 
 # Specific plotting tools
-library(UpSetR)
-library(plotly)
-library(ggpubr)
-library(ggnewscale)
-library(viridis)
-library(cowplot)
+library(UpSetR) # For making Euler diagrams
+library(eulerr) # For making Euler diagrams
+library(ggOceanMaps) # For maps
+library(ggspatial)  # For map modifications
+library(cowplot) # Simple plot themes
+library(ggpubr) # Plot layout
+library(patchwork) # Plot layout
+library(ggnewscale) # Multiple scales on one plot
 
 # Statistical analyses
 library(vegan)
 
-
 ```
+
+
+
+```{r}
+# 1. Draw inner map with points for stations
+
+# Make a dataframe cointatining staion coordinates
+pin <- data.frame(lon = c(-125.0992), 
+                 lat = c(50.0307), 
+                 label = c("QU39"))
+
+# Plot inner map
+inner <-
+  # Define the limits (zoom of the map)
+  basemap(limits = c(-126.5, -121.8, 48.3, 51.3), rotate = TRUE) +
+  # Add red point for sampling station(s)
+  geom_spatial_point(data = pin, aes(x = lon, y = lat), color = "red", size = 2) +
+  # Add station labels, but adjuest position to not cover the point.
+  geom_spatial_label(data = pin, aes(x = lon-0.35, y = lat-0.15, label = label)) +
+  # Remove axis title
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank())
+
+
+# 2. Draw outer map with box highlighting the inner map.
+
+# Make a dataframe cointatining 4 coordinates defining box corners.
+# Use same coordingates as the limits defined above.
+insert_box <- data.frame(lon = c(-126.5, -126.5, -121.8, -121.8),
+                         lat = c(48.3, 51.3, 51.3, 48.3))
+# Plot outer map
+outer <-
+  # Define the limits (zoom of the map)
+  basemap(limits = c(-130.0, -80.0, 35.0, 75.0), rotate = TRUE) +
+  # Draw polygon for inner map
+  geom_spatial_polygon(data = insert_box, aes(x = lon, y = lat),
+                       fill = NA, color = "red") +
+  # Remove axis title
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank())
+
+
+# 3. Make outer plot as insert of inner. Define size and location.
+final_map <- inner + inset_element(outer, 0.5, 0.5, 1, 1)
+ggsave("Figure_output/station_map.pdf", final_map, width = 4, height = 4)
+
+final_map
+```
+
 
 # 1. Sequencing dept and negative controls.
 
@@ -99,6 +149,10 @@ print("Number of final 18S libraries:")
 Good_18S_data %>% 
   pull(Library_ID) %>% unique %>%  length
 ```
+
+
+
+
 
 ## Annotation success
 
@@ -252,76 +306,99 @@ EtOH_COI_2017_index_species <- calculate_index(Good_COI_data, Species, "EtOH_sup
 EtOH_COI_2017_index_genus <- calculate_index(Good_COI_data, Genus, "EtOH_sup")
 
 ```
+Filter singeltons function
+
+```{r}
+ListNoSing <- function(data, type = "DNA") {
+  
+  if (type == "DNA") {data <- filter(data, Abundance > 1)}
+  
+  data %>%
+  group_by(Taxa) %>% 
+  summarise(n=n()) %>% 
+  filter(n>1) %>% 
+  pull(Taxa)
+  
+}
+
+
+```
 
 
 
 # 3. Coverage comparison of taxonomic markers
 
-## 3.2 Pairwise overlap heat maps:
 
-### Combine lists:
+### Eulerr plots:
 
-To compare the taxonomic coverage, we combine a list of taxa that pass abundance filtering, using the getSpeciesList, and the getGenusList functions defined in the previous chapter. See the function definition for more information about how data types are filtered.
-
-```{r}
-SpeciesListComp <- list(
-  `Bulk Microscopy` = getSpeciesList(Net_count_2017_index_species, type = "m"),
-  `Bulk 18S` = getSpeciesList(Net_18S_2017_index_species),
-  `Bulk COI` = getSpeciesList(Net_COI_2017_index_species),
-  `Water COI` = getSpeciesList(eDNA_COI_2017_index_species),
-  `Water 18S` = getSpeciesList(eDNA_18S_2017_index_species)
-)
-
-GenusListComp <- list(
-  `Bulk Microscopy` = getGenusList(Net_count_2017_index_genus, type = "m"),
-  `Bulk 18S` = getGenusList(Net_18S_2017_index_genus),
-  `Bulk COI` = getGenusList(Net_COI_2017_index_genus),
-  `Water COI` = getGenusList(eDNA_COI_2017_index_genus),
-  `Water 18S` = getGenusList(eDNA_18S_2017_index_genus)
-)
-```
-
-### Plot
+18S vs COI
 
 ```{r}
+GenusListComp_1 <- list(
+  `Net Microscopy` = ListNoSing(Net_count_2017_index_genus, "m"),
+  `Net 18S` = ListNoSing(Net_18S_2017_index_genus),
+  `Net COI` = ListNoSing(Net_COI_2017_index_genus)
+)
 
-PairwiseOverlap <- function(ListComp = SpeciesListComp, level = "Species Level"){
+SpeciesListComp_1 <- list(
+  `Net Microscopy` = ListNoSing(Net_count_2017_index_species, "m"),
+  `Net 18S` = ListNoSing(Net_18S_2017_index_species),
+  `Net COI` = ListNoSing(Net_COI_2017_index_species)
+)
+
   
-  order <- c("Bulk Microscopy", "Bulk COI", "Water COI", "Bulk 18S", "Water 18S")
-
-  x <- fromList(ListComp)
-
-  t(x) %*% as.matrix(x) %>% 
-    as.data.frame() %>% 
-    rownames_to_column(var = 'group1') %>% 
-    pivot_longer(cols = -group1, names_to = 'group2') %>% 
-    mutate(group1 = factor(group1, levels = order),
-           group2 = factor(group2, levels = rev(order)),
-           level = level)
-}
-
-
-overlap_Plot <- bind_rows(PairwiseOverlap(SpeciesListComp, "Species Level"),
-          PairwiseOverlap(GenusListComp, "Genus Level"))
-
-
-overlap_Plot %>% 
-  ggplot(aes(group1, group2)) +
-  geom_tile(aes(fill = value)) +
-  geom_text(aes(label = value)) +
-  theme_bw() +
-  scale_fill_viridis(option = "D", direction = -1) +
-  labs(fill="Overlap") +
-  facet_wrap("level") +
-  theme_cowplot(12) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
-        axis.title.x=element_blank(),
-        axis.title.y=element_blank(),
-        aspect.ratio = 1,
-        strip.background =element_blank())
+pdf("Figure_output/euler_species.pdf", width = 3.5, height = 3.5)
+  SpeciesListComp_1 %>% 
+    fromList() %>% 
+    euler(shape = "circle") %>% 
+    plot(quantities = TRUE,
+        lty = 1:5)
+  dev.off()
   
-ggsave("Figure_output/Pairwise_Overlap.pdf", width = 7, height = 4.5)
+pdf("Figure_output/euler_genus.pdf", width = 3.5, height = 3.5)
+  set.seed(102)
+  GenusListComp_1 %>% 
+    fromList() %>% 
+    euler(shape = "circle") %>% 
+    plot(quantities = TRUE,
+         lty = 1:5)
+  dev.off()
 ```
+
+Net vs water
+
+```{r}
+ListComp_18S <- list(
+  `Net Microscopy` = ListNoSing(Net_count_2017_index_genus, type = "m"),
+  `Net 18S` = ListNoSing(Net_18S_2017_index_genus),
+  `Water 18S` = ListNoSing(eDNA_18S_2017_index_genus)
+)
+
+ListComp_COI <- list(
+  `Net Microscopy` = ListNoSing(Net_count_2017_index_genus, type = "m"),
+  `Net COI` = ListNoSing(Net_COI_2017_index_genus),
+  `Water COI` = ListNoSing(eDNA_COI_2017_index_genus)
+)
+
+  
+pdf("Figure_output/euler_COI.pdf", width = 3.5, height = 3.5)
+  ListComp_COI %>% 
+    fromList() %>% 
+    euler(shape = "circle") %>% 
+    plot(quantities = TRUE,
+        lty = 1:5)
+  dev.off()
+  
+pdf("Figure_output/euler_18S.pdf", width = 3.5, height = 3.5)
+  set.seed(102)
+  ListComp_18S %>% 
+    fromList() %>% 
+    euler(shape = "circle") %>% 
+    plot(quantities = TRUE,
+         lty = 1:5)
+  dev.off()
+```
+
 
 ### Conclusions:
 
@@ -339,7 +416,7 @@ At Species Level:
 
 ```{r}
 Sum_per_species <- Net_count_2017_index_species %>% 
-  filter(Taxa %in% getSpeciesList(Net_count_2017_index_species, type = "m")) %>% 
+  filter(Taxa %in% ListNoSing(Net_count_2017_index_species, type = "m")) %>% 
   group_by(Taxa, Date) %>% 
   summarize(Biomass = sum(Abundance))
 
@@ -348,20 +425,20 @@ Sum_per_day <- Sum_per_species %>%
   summarize(Counted_Biomass = sum(Biomass))
 
 Detected_COI <- Sum_per_species %>% 
-  filter(Taxa %in% getSpeciesList(Net_COI_2017_index_species)) %>% 
+  filter(Taxa %in% ListNoSing(Net_COI_2017_index_species)) %>% 
   group_by(Date) %>% 
   summarize(Detected_COI = sum(Biomass)) %>% 
   left_join(Sum_per_day, by = "Date")
 
 Detected_18S <- Sum_per_species %>% 
-  filter(Taxa %in% getSpeciesList(Net_18S_2017_index_species)) %>% 
+  filter(Taxa %in% ListNoSing(Net_18S_2017_index_species)) %>% 
   group_by(Date) %>% 
   summarize(Detected_18S = sum(Biomass)) %>% 
   left_join(Detected_COI, by = "Date")
 
 Sum_per_day_all <- Sum_per_species %>% 
-  filter(Taxa %in% c(getSpeciesList(Net_18S_2017_index_species),
-                     getSpeciesList(Net_COI_2017_index_species))) %>% 
+  filter(Taxa %in% c(ListNoSing(Net_18S_2017_index_species),
+                     ListNoSing(Net_COI_2017_index_species))) %>% 
   group_by(Date) %>%
   summarize(Detected_18S_COI = sum(Biomass)) %>% 
   left_join(Detected_18S, by = "Date")
@@ -382,7 +459,7 @@ At Genus Level:
 ```{r}
 { ##Species level biomass comparison##
 Sum_per_genus <- Net_count_2017_index_genus %>% 
-  filter(Taxa %in% getGenusList(Net_count_2017_index_genus, type = "m")) %>% 
+  filter(Taxa %in% ListNoSing(Net_count_2017_index_genus, type = "m")) %>% 
   group_by(Taxa, Date) %>% 
   summarize(Biomass = sum(Abundance))
 
@@ -391,20 +468,20 @@ Sum_per_day <- Sum_per_genus %>%
   summarize(Counted_Biomass = sum(Biomass))
 
 Detected_COI <- Sum_per_genus %>% 
-  filter(Taxa %in% getGenusList(Net_COI_2017_index_genus)) %>% 
+  filter(Taxa %in% ListNoSing(Net_COI_2017_index_genus)) %>% 
   group_by(Date) %>% 
   summarize(Detected_COI = sum(Biomass)) %>% 
   left_join(Sum_per_day, by = "Date")
   
 Detected_18S <- Sum_per_genus %>% 
-  filter(Taxa %in% getGenusList(Net_18S_2017_index_genus)) %>% 
+  filter(Taxa %in% ListNoSing(Net_18S_2017_index_genus)) %>% 
   group_by(Date) %>% 
   summarize(Detected_18S = sum(Biomass)) %>% 
   left_join(Detected_COI, by = "Date")
 
 Sum_per_day_all <- Sum_per_genus %>% 
-  filter(Taxa %in% c(getGenusList(Net_18S_2017_index_genus),
-                     getGenusList(Net_COI_2017_index_genus))) %>% 
+  filter(Taxa %in% c(ListNoSing(Net_18S_2017_index_genus),
+                     ListNoSing(Net_COI_2017_index_genus))) %>% 
   group_by(Date) %>%
   summarize(Detected_18S_COI = sum(Biomass)) %>% 
   left_join(Detected_18S, by = "Date")
@@ -438,6 +515,12 @@ Biomass_fraction_plot
 
 ggsave("Figure_output/Biomass_fractions.pdf", width = 7, height = 4.5)
 
+
+# Mean Results
+bind_rows(fraction_genus, fraction_species) %>% 
+  group_by(Marker, Level) %>% 
+  summarize(Proportion = mean(Proportion))
+
 ```
 
 ### Conclusions:
@@ -450,81 +533,79 @@ ggsave("Figure_output/Biomass_fractions.pdf", width = 7, height = 4.5)
 
 4.  Combining 18S and COI is slightly, but only marginally better than using COI alone.
 
+
 ## 3.4. Exclusive taxa
 
 So the DNA methods combined targets 50-70% of zooplankton my biomass. Here we investigate the remaining genera, that remains un-targeted by the DNA methods. The Genera are ordered by relative biomass contribution.
 
 ```{r}
-Net_count_2017_index_genus %>% 
-  group_by(Taxa) %>% 
-  summarise(Abundance = sum(Abundance)) %>% 
-  mutate(Abundance = Abundance/sum(Abundance))
-
-
-
 # Detected by BOTH microscopy and ny of the other methods
 microscopy_and_DNA <- Net_count_2017_index_genus %>% 
-  filter(Taxa %in% getGenusList(., "m"),
-         Taxa %in% c(getGenusList(Net_18S_2017_index_genus),
-                     getGenusList(Net_COI_2017_index_genus),
-                     getGenusList(eDNA_18S_2017_index_genus),
-                     getGenusList(eDNA_COI_2017_index_genus))) %>% 
-  #group_by(Taxa, Date) %>% 
-  #summarize(RA = sum(RA)) %>% 
+  filter(Taxa %in% ListNoSing(., "m"),
+         Taxa %in% c(ListNoSing(Net_18S_2017_index_genus),
+                     ListNoSing(Net_COI_2017_index_genus))) %>% 
+  
   group_by(Taxa) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
   mutate(RA = Abundance/sum(Abundance)) %>% 
   filter(RA > 0.000) %>% 
   mutate(Type = "Microscopy and DNA")
 
-microscopy_and_DNA %>%  pull(RA) %>% sum 
-microscopy_and_DNA
 
 # Only detected by microscopy
 only_microscopy <- Net_count_2017_index_genus %>% 
-  filter(Taxa %in% getGenusList(Net_count_2017_index_genus, type = "m"),
-         Taxa %!in% getGenusList(Net_18S_2017_index_genus),
-         Taxa %!in% getGenusList(Net_COI_2017_index_genus)) %>% 
+  filter(Taxa %in% ListNoSing(Net_count_2017_index_genus, type = "m"),
+         Taxa %!in% ListNoSing(Net_18S_2017_index_genus),
+         Taxa %!in% ListNoSing(Net_COI_2017_index_genus)) %>% 
+  
   group_by(Taxa, Date) %>% 
   summarize(RA = mean(RA)) %>% 
   group_by(Taxa) %>% 
   summarize(RA = mean(RA)) %>%
-  #reframe(RA = Biomass/sum(Biomass), Taxa) %>% 
   filter(RA > 0.000) %>% 
   mutate(Type = "Only by Microscopy")
 
 
 # Only detected by COI
-only_COI <- eDNA_COI_2017_index_genus %>% 
-  filter(Taxa %in% getGenusList(eDNA_COI_2017_index_genus),
-         Taxa %!in% getGenusList(Net_count_2017_index_genus, type = "m")) %>% 
+only_COI <- Net_COI_2017_index_genus %>%
+  filter(Taxa %in% ListNoSing(Net_COI_2017_index_genus)) %>% 
+  filter(Taxa %!in% ListNoSing(Net_count_2017_index_genus, type = "m")) %>% 
   group_by(Taxa) %>% 
   summarize(RA = mean(RA)) %>%
   mutate(Type = "Only by COI")
+only_COI
 
 # Only detected by 18S
-only_18S <- eDNA_18S_2017_index_genus %>% 
-  filter(Taxa %in% getGenusList(eDNA_18S_2017_index_genus),
-         Taxa %!in% getGenusList(Net_count_2017_index_genus, type = "m")) %>% 
+only_18S <- Net_18S_2017_index_genus %>% 
+  filter(Taxa %in% ListNoSing(Net_18S_2017_index_genus),
+         Taxa %!in% ListNoSing(Net_count_2017_index_genus, type = "m")) %>% 
   group_by(Taxa) %>% 
   summarize(RA = mean(RA)) %>%
   mutate(Type = "Only by 18S")
 
 #Combine and plot
-bind_rows(microscopy_and_DNA, only_microscopy, only_COI, only_18S) %>%
+bind_rows(microscopy_and_DNA, only_microscopy, only_COI, only_18S) %>% 
   mutate(Type = factor(Type, levels = c(
     "Microscopy and DNA", "Only by Microscopy", "Only by COI", "Only by 18S"
-  ))) %>% 
+  ))) %>%
+  filter(RA > 0.001) %>%  ##### NOTE: REMOVED LOW COUNTS! #######
   ggplot() +
   geom_bar(aes(reorder(Taxa, -RA), RA), stat = "identity") +
-  theme_minimal_hgrid(12) +
+  theme_minimal_hgrid(9) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1,
                                    face = "italic")) +
-  facet_wrap("Type", scales = "free") +
+  facet_wrap("Type", scales = "free_x") +
   ylab("Relative abundance") +
   xlab("Genus")
 
 ggsave("Figure_output/Remaining_Taxa.pdf")
+```
+
+
+```{r}
+
+only_18S %>% 
+  summarize(RA = sum(RA))
 ```
 
 ## Conclusions
@@ -541,29 +622,81 @@ ggsave("Figure_output/Remaining_Taxa.pdf")
 
 6.  eDNA of COI and 18S catches many different metazooan taxa not targeted by microscopy. Most of these taxa are benthic mollusks, worms, echinoderms or cnidarians.
 
-# 4. Performance of normalization methods
 
-To allow for a data set that can be compared between the different markers, we create a list of all taxa that are detected by both microscopy AND at least one of the genetic methods:
+# Selection of taxa.
+
+To allow for 
 
 ```{r}
 # At Genus Level
+
 GenusList <-
-  Net_count_2017_index_genus %>% 
-  filter(Taxa %in% getGenusList(., "m"),
-         Taxa %in% c(getGenusList(Net_18S_2017_index_genus),
-                     getGenusList(Net_COI_2017_index_genus),
-                     getGenusList(eDNA_18S_2017_index_genus),
-                     getGenusList(eDNA_COI_2017_index_genus))) %>% 
+  Net_count_2017_index_genus %>%
+  
+  # 1. Select taxa present in both microscopy and DNA NET samples
+  filter(Taxa %in% ListNoSing(Net_count_2017_index_genus, "m"),
+         Taxa %in% c(ListNoSing(Net_18S_2017_index_genus),
+                     ListNoSing(Net_COI_2017_index_genus))) %>%
+  
+  # 3. Pull list
   pull(Taxa) %>% unique()
+
+GenusList27 <-
+  Net_count_2017_index_genus %>%
+  
+  # 1. Select taxa present in both microscopy and DNA NET samples
+  filter(Taxa %in% ListNoSing(Net_count_2017_index_genus, "m"),
+         Taxa %in% c(ListNoSing(Net_18S_2017_index_genus),
+                     ListNoSing(Net_COI_2017_index_genus))) %>%
+  
+  # 2. Select the 27 most abundant taxa
+  group_by(Taxa) %>% 
+  summarize(RA = mean(RA)) %>% 
+  arrange(-RA) %>% 
+  mutate(count = 1:36) %>% 
+  filter(count < 28) %>%
+  
+  # 3. Pull list
+  pull(Taxa) %>% unique()
+
+GenusList15 <-
+  Net_count_2017_index_genus %>%
+  
+  # 1. Select taxa present in both microscopy and DNA NET samples
+  filter(Taxa %in% ListNoSing(Net_count_2017_index_genus, "m"),
+         Taxa %in% c(ListNoSing(Net_18S_2017_index_genus),
+                     ListNoSing(Net_COI_2017_index_genus))) %>%
+  
+  # 2. Select the 27 most abundant taxa
+  group_by(Taxa) %>% 
+  summarize(RA = mean(RA)) %>% 
+  arrange(-RA) %>% 
+  mutate(count = 1:36) %>% 
+  filter(count < 16) %>%
+  
+  # 3. Pull list
+  pull(Taxa) %>% unique()
+
+
+
+
+GenusList
 
 # At Species Level
 SpeciesList <-
   Net_count_2017_index_species %>% 
-  filter(Taxa %in% getSpeciesList(., "m"),
-         Taxa %in% c(getSpeciesList(Net_COI_2017_index_species),
-                     getSpeciesList(eDNA_COI_2017_index_species))) %>% 
+  filter(Taxa %in% ListNoSing(., "m"),
+         Taxa %in% c(ListNoSing(Net_COI_2017_index_species),
+                     ListNoSing(eDNA_COI_2017_index_species))) %>% 
   pull(Taxa) %>% unique()
 ```
+
+
+
+
+
+# 4. Performance of normalization methods
+
 
 Next we create a merged dataset for the different markers:
 
@@ -593,6 +726,8 @@ Net_merged_data <-
 
 
 ```
+
+
 
 ## 4.1 Multivariate comparison
 
@@ -729,16 +864,20 @@ bind_rows(mod1$NMDS.scores, mod2$NMDS.scores, mod3$NMDS.scores,
   mutate(Month = format(as.Date(Date), format="%m")) %>%
   mutate(Index_Type = ifelse(Index_Type == "RA_Index", "eDNA Index", Index_Type)) %>% 
   mutate(Index_Type = factor(Index_Type, levels = c("RA", "PA", "eDNA Index"))) %>% 
+  mutate(Taxa = ifelse(Taxa %in% GenusList10, Taxa, "")) %>% 
   
   ggplot(aes(NMDS1_Samples, NMDS2_Samples)) +
-  geom_text(aes(NMDS1_Taxa*1.1, NMDS2_Taxa*1.1, label = Taxa),
+  geom_text(aes(NMDS1_Taxa, NMDS2_Taxa, label = Taxa),
             size = 3, colour = "grey", fontface = "italic") +
   geom_line(aes(color = Month, group = Date), linetype = "dotted") +
   geom_point(aes(shape = Method, color = Month), size = 2) +
+  stat_ellipse(aes(linetype = Method), size = 0.2) +
   facet_grid(Index_Type~Gene_Marker, scales = "free") +
   theme_minimal_grid(12) +
   theme(aspect.ratio = 1,
-        panel.border = element_rect(colour = "black", fill=NA)) +
+        panel.border = element_rect(colour = "black", fill=NA),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
   scale_color_manual(values = seasonal_colors) +
   scale_shape_manual(values=c(1, 16))
 
@@ -861,7 +1000,7 @@ order <- tmp %>%
 tmp %>% 
   
   # Filter relevant taxa:
-  filter(Taxa %in% GenusList) %>%
+  filter(Taxa %in% GenusList27) %>%
   mutate(marker = factor(marker, levels = c("Count", "COI", "18S"))) %>%
   mutate(Taxa = factor(Taxa, levels = c(order))) %>% 
   
@@ -882,41 +1021,9 @@ ggsave("Figure_output/Seasonal_Bulk_Genus.pdf", width = 8, height = 10)
 
 
 ```
-```{r}
-##### SUPERNATANT COI ONLY #######
 
-#Combine the three data sets
-bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
-          mutate(Net_COI_2017_index_genus, marker = "COI_bulk"),
-          ungroup(mutate(EtOH_COI_2017_index_genus, marker = "COI_sup"))) %>% 
-  
-  # Filter relevant taxa:
-  filter(Taxa %in% GenusList) %>%
-  mutate(marker = factor(marker, levels = c("Count", "COI_bulk", "COI_sup"))) %>% 
-  
-  # Plot
-  ggplot() +
-  geom_line(aes(Date, RA_Index, color = marker, linetype = marker)) +
-  facet_wrap(facets = "Taxa", ncol = 6) +
-  theme_minimal_hgrid() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
-        strip.text = element_text(face = "italic"),
-        legend.position="none",
-        panel.background = element_rect(fill = '#F5F5F5', colour = 'darkgrey'),
-        aspect.ratio = 1/2.5) +
-  scale_color_manual(values = c('#fec44f','#4daf4a','#377eb8'))
 
-ggsave("Figure_output/Seasonal_Bulk_Genus.pdf", width = 12, height = 7)
 
-mutate(EtOH_COI_index, marker = "COI_sup") %>% 
-  filter(Taxa %in% GenusList) %>% 
-  mutate(marker = factor(marker, levels = c("Count", "COI_bulk", "COI_sup"))) %>% 
-  ggplot() +
-  geom_line(aes(Date, RA_Index)) +
-  facet_wrap(facets = "Taxa", ncol = 6)
-
-EtOH_COI_index
-```
 
 RA_index of eDNA samples, the average of 18S and COI.
 
@@ -944,9 +1051,9 @@ data <-  eDNA %>%
   mutate(y = ifelse(marker == "eDNA", Depth, marker)) %>% 
   mutate(y = factor(y, levels = rev(c("Count", "COI", "18S", "0", "5", "30", "100", "260")))) %>% 
   mutate(Taxa = factor(Taxa, levels = order))
- 
 
-data %>% ggplot() +
+
+data %>%  ggplot() +
   
   # Add filter water data:
   geom_point(
@@ -995,10 +1102,7 @@ data %>% ggplot() +
 
 ggsave("Figure_output/Seasonal_Comb_Genus_press.pdf", width = 7, height = 10)
 
-data %>% 
-  pull(y) %>% unique
 
-data
   
 
 
@@ -1036,5 +1140,25 @@ tmp %>%
   scale_color_manual(values = c('#fec44f','#4daf4a',"cyan"))
 
 ggsave("Figure_output/Seasonal_Bulk_Species.pdf", width = 10, height = 7)
+```
+
+
+# Data amount
+
+```{r}
+  # Combine data sets
+  bind_rows(
+    mutate(Net_count_2017_index_genus, marker = "Microscopy"),
+    mutate(Net_COI_2017_index_genus, marker = "COI"),
+    mutate(Net_18S_2017_index_genus, marker = "18S")) %>% 
+  # Calculate pressence / Absence from the relative abundance
+  # Remove unwanted taxa and columns
+  filter(Taxa %in% GenusList) %>%
+  select(Taxa, Date, Abundance, marker) %>%
+  group_by(Taxa, marker) %>%
+  summarise(Abundance = sum(Abundance)) %>% 
+  pivot_wider(names_from = "marker", values_from = "Abundance") %>%
+  arrange(-Microscopy) %>% 
+  write_csv("Figure_output/data_ammount.csv")
 ```
 
