@@ -309,6 +309,11 @@ plotly::ggplotly(p2)
 All_COI_data
 ```
 
+
+
+
+
+
 # 4. Merge 18S MiSeq runs
 
 This piece of code uses the predefined functions to merge all components of the 18S dataset, and to plot sequence depth:

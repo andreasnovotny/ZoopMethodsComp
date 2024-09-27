@@ -91,6 +91,7 @@ Here we also produce statistics for annotation levels and read success.\
 \
 Plotting sequencing depth and removing low libraries for COI:
 
+
 ```{r}
 # Plot ranked sequencing depth with threshold line
 All_COI_data %>% 
@@ -118,6 +119,12 @@ Good_COI_data %>%
 print("Number of final COI libraries:")
 Good_COI_data %>% 
   pull(Library_ID) %>% unique %>%  length
+
+
+#### NOTE: Taxonomic correction of the subgenus Ditrichocorycaeus, not yet accepted.
+Good_COI_data <- Good_COI_data %>%
+  mutate(Genus = ifelse(Genus == "Ditrichocorycaeus", "Corycaeus", Genus),
+         Species = ifelse(Species == "Ditrichocorycaeus anglicus","Corycaeus anglicus", Species))
 ```
 
 Plotting sequencing depth and removing low libraries for 18S:
@@ -148,6 +155,11 @@ Good_18S_data %>%
 print("Number of final 18S libraries:")
 Good_18S_data %>% 
   pull(Library_ID) %>% unique %>%  length
+
+#### NOTE: Taxonomic correction of the subgenus Ditrichocorycaeus, not yet accepted.
+Good_18S_data <- Good_18S_data %>%
+  mutate(Genus = ifelse(Genus == "Ditrichocorycaeus", "Corycaeus", Genus),
+         Species = ifelse(Species == "Ditrichocorycaeus anglicus","Corycaeus anglicus", Species))
 ```
 
 
@@ -645,7 +657,7 @@ GenusList27 <-
   Net_count_2017_index_genus %>%
   
   # 1. Select taxa present in both microscopy and DNA NET samples
-  filter(Taxa %in% ListNoSing(Net_count_2017_index_genus, "m"),
+  filter(Taxa %in% ListNoSing(Net_count_2017_index_genus, "m"), 
          Taxa %in% c(ListNoSing(Net_18S_2017_index_genus),
                      ListNoSing(Net_COI_2017_index_genus))) %>%
   
@@ -653,8 +665,8 @@ GenusList27 <-
   group_by(Taxa) %>% 
   summarize(RA = mean(RA)) %>% 
   arrange(-RA) %>% 
-  mutate(count = 1:36) %>% 
-  filter(count < 28) %>%
+  mutate(count = 1:37) %>% 
+  filter(count < 28) %>% 
   
   # 3. Pull list
   pull(Taxa) %>% unique()
@@ -671,7 +683,7 @@ GenusList15 <-
   group_by(Taxa) %>% 
   summarize(RA = mean(RA)) %>% 
   arrange(-RA) %>% 
-  mutate(count = 1:36) %>% 
+  mutate(count = 1:37) %>% 
   filter(count < 16) %>%
   
   # 3. Pull list
@@ -680,7 +692,7 @@ GenusList15 <-
 
 
 
-GenusList
+GenusList27
 
 # At Species Level
 SpeciesList <-
@@ -1000,14 +1012,14 @@ order <- tmp %>%
 tmp %>% 
   
   # Filter relevant taxa:
-  filter(Taxa %in% GenusList27) %>%
+  filter(Taxa %in% GenusList) %>%
   mutate(marker = factor(marker, levels = c("Count", "COI", "18S"))) %>%
   mutate(Taxa = factor(Taxa, levels = c(order))) %>% 
   
   # Plot
   ggplot() +
   geom_line(aes(Date, RA_Index, color = marker, linetype = marker)) +
-  facet_wrap(facets = "Taxa", ncol = 3) +
+  facet_wrap(facets = "Taxa", ncol = 4) +
   theme_minimal_hgrid() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
         strip.text = element_text(face = "italic"),
@@ -1032,7 +1044,6 @@ RA_index of eDNA samples, the average of 18S and COI.
 eDNA <- bind_rows(mutate(eDNA_COI_2017_index_genus, marker = "COI"),
                   mutate(eDNA_18S_2017_index_genus, marker = "18S",
                          Depth = as.character(Depth))) %>% 
-  
   group_by(Taxa, Date, Depth) %>% 
   summarize(RA_Index = mean(RA_Index),
             Abundance = mean(Abundance),
@@ -1092,19 +1103,19 @@ data %>%  ggplot() +
   
   
   # Set plot themes
-  theme_map() +
+  #theme_map() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
         strip.text = element_text(face = "italic"),
-        legend.position="none",
-        panel.background = element_rect(fill = '#F5F5F5', colour = 'darkgrey'),
-        aspect.ratio = 1/2.5) +
+  #      legend.position="none",
+  #      panel.background = element_rect(fill = '#F5F5F5', colour = 'darkgrey'),
+        aspect.rtio = 1/2.5) +
   facet_wrap("Taxa", ncol = 3)
 
 ggsave("Figure_output/Seasonal_Comb_Genus_press.pdf", width = 7, height = 10)
 
 
   
-
+library(viridis)
 
 ```
 
