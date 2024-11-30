@@ -1,22 +1,41 @@
 ---
-title: "Comparing Methods"
+title: "DNA Metabarcoding Captures Temporal and Vertical Dynamics of Mesozooplankton
+  Communities - Supplementary Data S3"
 ---
 
-# 0. Background
+***Authors: Andreas Novotny (1,2), Caterina Rodrigues (1,2), Loïc Jacquemot (1,2), Rute B. G. Clemente-Carvalho (2), Rebecca S. Piercey (2), Evan Morien (2), Moira Galbraith (3), Colleen T. E. Kellogg (2), Matthew A. Lemay (2), and Brian P. V. Hunt (1,4)***
 
-**Andreas Novotny 2024**
+1.  *Institute for the Oceans and Fisheries, University of British Columbia, 2202 Main Mall, Vancouver, BC, V6T 1Z4 Canada*
 
-This script is used to produce all graphical and statistical output for the manuscript and its supplementary material.
+2.  *Hakai Institute, PO Box 25039, Campbell River, BC, V9W 0B7, Canada*
 
-These packages are required for this script.
+3.  *Institute of Ocean Sciences, Fisheries and Oceans Canada, PO Box 6000, Sidney, BC, V8L 4B2, Canada*
 
-```{r}
+4.  *Department of Earth, Ocean and Atmospheric Sciences, University of British Columbia, 2202 Main Mall, Vancouver, BC, V6T 1Z4 Canada*
+
+## Abstract
+
+In this study, we examined how well DNA metabarcoding capture changes in biomass of marine mesozooplankton. We evaluated the effectiveness of three different standardisation methods – relative abundance, presence-absence, and the eDNA-index – for correlating seasonal trends between DNA sequence read abundance and microscopic biomass estimates of zooplankton net samples collected every two weeks in a 1-year time series. To assess if taxa specific trends are sensitive to the selection of genetic marker, we sequenced both short fragment of the COI gene, with primers optimised to capture marine invertebrate community (Leray *et al.*, 2013) and the 18S gene, with universal primers optimised for marine microbial eukaryotes (Balzano *et al.*, 2015). In doing so, we provide both new insights into the reliability of DNA metabarcoding analysis and guidelines for future studies that aim to use environmental DNA to study marine community dynamics. Further, through analysis of discreet water column DNA samples, we demonstrate the potential of the DNA approach in resolving differences in vertical zooplankton distributions.
+
+# 0. Preparations
+
+**This R notebook was used to produce the graphical and statistical output** for the manuscript and its supplementary figures and tables. See manuscript for details on sampling, experimental design and sample processing.\
+\
+**Prior ro analysis in this script** 18S and COI amplicons have been sequenced on a MiSeq and raw Fastq sequences have been uploaded to NCBI under the BioProject accession number PRJNA1141475 (<https://www.ncbi.nlm.nih.gov/sra/PRJNA1141475>). All sample-specific accession numbers are listed in the metadata files. See further down.\
+\
+DNA sequences (FASTQ files) were processed using a custom bioinformatic pipeline (see Supplementary Data 2: <https://doi.org/10.5281/zenodo.14241795>) using DADA2, with sequences annotated to the MetaZooGene database. ASV tables with taxonomic annotations are found in the ./Data folder.
+
+**These R packages are required for executing the code below:**
+
+```{r message=FALSE}
 # Data import
 library(readxl)
 
 # All data format modifications and filtering and plotting
 library(tidyverse)
 '%!in%' <- function(x,y)!('%in%'(x,y))
+
+# This script contains a function for calculating eDNA-index.
 source("Code/Functions.R")
 
 # Specific plotting tools
@@ -32,83 +51,16 @@ library(ggnewscale) # Multiple scales on one plot
 # Statistical analyses
 library(vegan)
 
-# Import DATA From Bioinformatic Pipeline
+# Import all datasets from Bioinformatic Pipeline
 #system2("cp", args = c(
 #  "../CoastalBCdata/Data_output/To_ZoopMethodsComp/*",
 #  "Data/"
 #))
 ```
 
+## Sampling Station
 
-## Read in the datasets that are supplemented with this package:
-
-COI data :
-```{r}
-metadata_COI <- read_csv("Data/Sequence_Metadata_COI_QU39_2017.csv")
-ASV_COI <- read_csv("Data/ASV_COI_MZGdb_QU39_2017.csv")
-
-All_COI_data <- ASV_COI %>%
-  pivot_longer(cols = !1:13, names_to = "library_ID", values_to = "Abundance") %>% 
-  full_join(metadata_COI)
-
-rm(metadata_COI, ASV_COI)
-```
-
-18S data:
-```{r}
-metadata_18S <- read_csv("Data/Sequence_Metadata_18S_QU39_2017.csv")
-ASV_18S <- read_csv("Data/ASV_18S_MZGdb_QU39_2017.csv")
-
-All_18S_data <- ASV_18S %>%
-  pivot_longer(cols = !1:13, names_to = "library_ID", values_to = "Abundance") %>% 
-  full_join(metadata_18S)
-
-rm(metadata_18S, ASV_18S)
-```
-Modify metadata to account for different sample types:
-
-```{r}
-# Get levels for collection method:
-All_COI_data %>% 
-  pull(collection_method) %>% unique()
-
-Filtered_Water <- "Sterivex Seawater filtration: https://dx.doi.org/10.17504/protocols.io.rm7vzjxrrlx1/v1"
-Bulk_Zooplankton <- "Vertical zooplankton net tow, preserved in 99 percent ethanol"
-Zooplankton_Preservative <- "Vertical zooplankton net tow, preserved in 99 percent ethanol. Etnahol subsampling: https://dx.doi.org/10.17504/protocols.io.j8nlk888wl5r/v1"
-
-All_COI_data <- All_COI_data %>% 
-  mutate(Type = ifelse(
-    collection_method == Filtered_Water,
-    "Filtered_Water",
-    ifelse(
-      collection_method == Bulk_Zooplankton,
-      "Bulk_Zooplankton",
-      "Zooplankton_Preservative")
-  ))
-
-All_18S_data <- All_18S_data %>% 
-  mutate(Type = ifelse(
-    collection_method == Filtered_Water,
-    "Filtered_Water",
-    ifelse(
-      collection_method == Bulk_Zooplankton,
-      "Bulk_Zooplankton",
-      "Zooplankton_Preservative")
-  ))
-```
-
-
-
-
-
-
-
-Microscopy data:
-```{r}
-df_count_2017 <- read_csv("Data/Zooplankton_QU39_2017.csv")
-```
-
-## Make map for sampling location at QU39
+Samples were collected during 2017 from station QU39 in the Salish Sea, British Columbia, Canada.
 
 ```{r}
 # 1. Draw inner map with points for stations
@@ -151,25 +103,105 @@ outer <-
 
 # 3. Make outer plot as insert of inner. Define size and location.
 final_map <- inner + inset_element(outer, 0.5, 0.5, 1, 1)
-ggsave("Figure_output/station_map.pdf", final_map, width = 4, height = 4)
+ggsave("Figure_output/Fig.1B_StationMap.pdf", final_map, width = 4, height = 4)
 
 final_map
 
 rm(inner, outer, insert_box, pin)
 ```
 
+## Load all data
 
-# 1. Sequencing dept
-
-Filter libraries with low sequence depth for 18S data
+Reading in all COI ASVs with taxonomic annotation and sample metadata. 
 
 ```{r}
-# Filter out libraries under threshold line of 10,000 reads per library
+# Sample metadata
+metadata_COI <- read_csv("Data/Sequence_Metadata_COI_QU39_2017.csv")
+# ASV and taxonomy table
+ASV_COI <- read_csv("Data/ASV_COI_MZGdb_QU39_2017.csv")
+
+# Turn ASV table into "long" and merge with metadata.
+All_COI_data <- ASV_COI %>%
+  pivot_longer(cols = !1:13, names_to = "library_ID", values_to = "Abundance") %>% 
+  full_join(metadata_COI)
+
+rm(metadata_COI, ASV_COI)
+```
+
+Reading in all 18S ASVs with taxonomic annotation and sample metadata. 
+
+```{r}
+# Sample metadata
+metadata_18S <- read_csv("Data/Sequence_Metadata_18S_QU39_2017.csv")
+# ASV and taxonomy table
+ASV_18S <- read_csv("Data/ASV_18S_MZGdb_QU39_2017.csv")
+
+# Turn ASV table into "long" and merge with metadata.
+All_18S_data <- ASV_18S %>%
+  pivot_longer(cols = !1:13, names_to = "library_ID", values_to = "Abundance") %>% 
+  full_join(metadata_18S)
+
+rm(metadata_18S, ASV_18S)
+```
+
+For DNA, three different sample types were collected: Filtered Water, Bulk Zooplankton nets, and filtered ethanol preservative from the zooplankton nets. Here we construct a new Type variable that is based on the "collection_method" from the sample metadata.
+
+```{r}
+# 1. Get levels for collection method:
+#All_COI_data %>% 
+#  pull(collection_method) %>% unique()
+
+#. 2. Rename the three levels with more useable names:
+Filtered_Water <- "Sterivex Seawater filtration: https://dx.doi.org/10.17504/protocols.io.rm7vzjxrrlx1/v1"
+Bulk_Zooplankton <- "Vertical zooplankton net tow, preserved in 99 percent ethanol"
+Zooplankton_Preservative <- "Vertical zooplankton net tow, preserved in 99 percent ethanol. Etnahol subsampling: https://dx.doi.org/10.17504/protocols.io.j8nlk888wl5r/v1"
+
+# Add new Type variable to COI metadata. 
+All_COI_data <- All_COI_data %>% 
+  mutate(Type = ifelse(
+    collection_method == Filtered_Water,
+    "Filtered_Water",
+    ifelse(
+      collection_method == Bulk_Zooplankton,
+      "Bulk_Zooplankton",
+      "Zooplankton_Preservative")
+  ))
+
+# Add new Type variable to 18S metadata.
+All_18S_data <- All_18S_data %>% 
+  mutate(Type = ifelse(
+    collection_method == Filtered_Water,
+    "Filtered_Water",
+    ifelse(
+      collection_method == Bulk_Zooplankton,
+      "Bulk_Zooplankton",
+      "Zooplankton_Preservative")
+  ))
+```
+
+Reading in data from taxonomic zooplankton analysis.
+
+```{r}
+df_count_2017 <- read_csv("Data/Zooplankton_QU39_2017.csv")
+```
+
+# 1. Sample Quality Control
+
+## Sequencing Depth
+Libraries with poor sequencing depth are removed. Our threshold is set to 10,000 reads per sequencing library.
+Further, in the MetaZooGene database, the genus Corycaeus was sometimes, but not always, labeled as Ditrichocorycaeus.
+Ditrichocorycaeus is a potential subgenus, but is not yet commonly accepted. We correct that here.
+
+For COI:
+
+```{r}
+# 1. Filter out libraries under threshold line of 10,000 reads per library
 Good_COI_data <- All_COI_data %>% 
   group_by(library_ID) %>%
   filter(sum(Abundance)>10000) %>% 
   ungroup()
 
+# 2.Summarize statistics of sequencing depth.  
 print("Median COI library size:")
 Good_COI_data %>%
   group_by(library_ID) %>% 
@@ -187,7 +219,8 @@ Good_COI_data <- Good_COI_data %>%
          Species = ifelse(Species == "Ditrichocorycaeus anglicus","Corycaeus anglicus", Species))
 
 ```
-Filter libraries with low sequence depth for 18S data
+
+Same for 18S:
 
 ```{r}
 
@@ -214,62 +247,9 @@ Good_18S_data <- Good_18S_data %>%
          Species = ifelse(Species == "Ditrichocorycaeus anglicus","Corycaeus anglicus", Species))
 ```
 
-## Annotation success
-
-This first plot shows the relative abundance of Metazooans, compared to other organisms for 18S and COI.
-
+Summarize tables of sample frequency and sequencing depth. Creating table for zooplankton samples:
 ```{r}
-# Calculate % metazoans for all samples in 18S data
-summary_18S <- Good_18S_data %>% 
-  mutate(Abundance = ifelse(is.na(Abundance), 0, Abundance)) %>% 
-  mutate(depth = ifelse(Type == "Bulk_Zooplankton", "230-0", depth)) %>% 
-  group_by(collection_date, Kingdom, library_ID, depth) %>% 
-  summarise(Abundance = sum(Abundance)) %>% 
-  group_by(collection_date, depth, library_ID) %>% 
-  reframe(RA = Abundance/sum(Abundance), Kingdom, Abundance) %>%
-  group_by(library_ID) %>% 
-  filter(sum(Abundance)>0) %>% 
-  mutate(Marker = "18S")
-
-
-# Calculate % metazoans for all samples in COI data
-summary_COI <- Good_COI_data %>% 
-  mutate(Abundance = ifelse(is.na(Abundance), 0, Abundance)) %>% 
-  mutate(depth = ifelse(Type == "Bulk_Zooplankton", "230-0", depth)) %>% 
-  group_by(collection_date, depth, Kingdom, library_ID) %>% 
-  summarise(Abundance = sum(Abundance)) %>% 
-  group_by(collection_date, depth, library_ID) %>% 
-  reframe(RA = Abundance/sum(Abundance), Kingdom, Abundance) %>%
-  group_by(library_ID) %>% 
-  filter(sum(Abundance)>0) %>% 
-  mutate(Marker = "COI")
-
-# Merge and plot
-bind_rows(summary_18S, summary_COI) %>%
-  filter(Kingdom == "Animalia") %>% 
-  mutate(depth = ifelse(depth == "230", "260", depth)) %>% 
-  mutate(depth = factor(depth,
-                                   levels= c("0", "5", "30",
-                                             "100", "260", "230-0"))) %>%
-  ggplot() +
-  geom_boxplot(aes(depth, RA, color = Marker)) +
-  theme_cowplot(12) +
-  theme(aspect.ratio = 1,
-        strip.background =element_blank()) +
-  scale_color_manual(values = c('#377eb8','#4daf4a'))
-
-ggsave("Figure_output/Metazoan_reads.pdf", width = 4, height = 4)
-
-rm(summary_18S, summary_COI)
-
-```
-
-
-### Sample amount and success
-
-Zooplankton Net Samples
-
-```{r}
+# 18S Zooplankton bulk data:
 tmp_18S <- Good_18S_data %>%
   group_by(library_ID, source_material_id, collection_date, Type, depth) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
@@ -278,6 +258,7 @@ tmp_18S <- Good_18S_data %>%
   select(collection_date, Abundance) %>% 
   mutate(Marker = "18S_Sequences")
 
+# COI Zooplankton bulk data:
 tmp_COI <- Good_COI_data %>%
   group_by(library_ID, source_material_id, collection_date, Type, depth) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
@@ -286,6 +267,7 @@ tmp_COI <- Good_COI_data %>%
   select(collection_date, Abundance) %>% 
   mutate(Marker = "COI_Sequences")
 
+# COI Zooplankton preservative
 tmp_COI_EtOH <- Good_COI_data %>%
   group_by(library_ID, source_material_id, collection_date, Type, depth) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
@@ -294,7 +276,7 @@ tmp_COI_EtOH <- Good_COI_data %>%
   select(collection_date, Abundance) %>% 
   mutate(Marker = "COI_Sequences_(Sup)")
 
-
+# Microscopy Zooplankton data
 tmp_mic <- df_count_2017 %>%
   group_by(Sample_ID, Station, Date, STN_TIME) %>% 
   summarise(Biomass = sum(Biomass, na.rm = TRUE)) %>%
@@ -302,18 +284,18 @@ tmp_mic <- df_count_2017 %>%
   select(collection_date = Date, Abundance = Biomass) %>% 
   mutate(Marker = "Microscopy_Biomass")
 
-
+# Combine and turn into table.
 bind_rows(tmp_mic, tmp_18S, tmp_COI, tmp_COI_EtOH) %>% 
   pivot_wider(names_from = Marker, values_from = Abundance) %>% 
   arrange(collection_date) %>% 
-  write_csv(file = "Data_output/Sample_Information_ZP_nets.csv")
+  write_csv(file = "Data_output/Sup.Tab.S1_ZooplanktonSampleSummary.csv")
   
 rm(tmp_mic, tmp_18S, tmp_COI, tmp_COI_EtOH)
 ```
 
-Water Samples (Sequences)
-
+Creating table for water samples:
 ```{r}
+# 18S Water sample sequencing depth
 tmp_18S <- Good_18S_data %>%
   group_by(library_ID, source_material_id, collection_date, Type, depth) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
@@ -322,6 +304,7 @@ tmp_18S <- Good_18S_data %>%
   select(collection_date, Abundance, depth) %>% 
   mutate(Marker = "18S_Sequences")
 
+# COI water sample sequencing depth
 tmp_COI <- Good_COI_data %>%
   group_by(library_ID, source_material_id, collection_date, Type, depth) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
@@ -330,7 +313,7 @@ tmp_COI <- Good_COI_data %>%
   select(collection_date, Abundance, depth) %>% 
   mutate(Marker = "COI_Sequences")
 
-
+# Combine to table
 bind_rows(tmp_18S, tmp_COI) %>%
   group_by(collection_date, depth, Marker) %>% 
   summarise(Abundance = sum(Abundance, na.rm = TRUE)) %>% 
@@ -339,35 +322,85 @@ bind_rows(tmp_18S, tmp_COI) %>%
   mutate(`Sequences COI/18S` = paste(COI_Sequences, `18S_Sequences`, sep = " / ")) %>% 
   select(collection_date, depth, `Sequences COI/18S`) %>% 
   pivot_wider(names_from = depth, values_from = `Sequences COI/18S`) %>% 
-  write_csv2(file = "Data_output/Sample_Information_Water.csv")
+  write_csv2(file = "Data_output/Suppl.Tab.S2_WaterSampleSummary.csv")
 
 rm(tmp_mic, tmp_18S, tmp_COI, tmp_COI_EtOH)
 ```
 
+## Annotation success
 
-# 2. Subset and calculate eDNA indexes of data sets:
+This first plot shows the relative abundance of Metazooans, compared to other organisms for 18S and COI respectively. 
+
+```{r}
+# Calculate % metazoans for all samples in 18S data
+summary_18S <- Good_18S_data %>%
+  mutate(depth = ifelse(Type == "Bulk_Zooplankton", "230-0", depth)) %>%
+  # Summarise abundance per kingdom
+  group_by(collection_date, Kingdom, library_ID, depth) %>% 
+  summarise(Abundance = sum(Abundance)) %>%
+  # Calculate relative abuncance per sample
+  group_by(collection_date, depth, library_ID) %>% 
+  reframe(RA = Abundance/sum(Abundance), Kingdom, Abundance) %>%
+  mutate(Marker = "18S")
+
+
+# Calculate % metazoans for all samples in COI data
+summary_COI <- Good_COI_data %>% 
+  mutate(depth = ifelse(Type == "Bulk_Zooplankton", "230-0", depth)) %>%
+  # Summarise abundance per kingdom
+  group_by(collection_date, depth, Kingdom, library_ID) %>% 
+  summarise(Abundance = sum(Abundance)) %>%
+  # Calculate relative abuncance per sample
+  group_by(collection_date, depth, library_ID) %>% 
+  reframe(RA = Abundance/sum(Abundance), Kingdom, Abundance) %>%
+  mutate(Marker = "COI")
+
+# Merge the two datasets
+bind_rows(summary_18S, summary_COI) %>%
+  # Show only proportion of animals
+  filter(Kingdom == "Animalia") %>%
+  # Arrange sampling depths
+  mutate(depth = ifelse(depth == "230", "260", depth)) %>% 
+  mutate(depth = factor(depth,
+                                   levels= c("0", "5", "30",
+                                             "100", "260", "230-0"))) %>%
+  # Plot boxplot
+  ggplot() +
+  geom_boxplot(aes(depth, RA, color = Marker)) +
+  theme_cowplot(12) +
+  theme(aspect.ratio = 1,
+        strip.background =element_blank()) +
+  scale_color_manual(values = c('#377eb8','#4daf4a'))
+
+ggsave("Figure_output/Sup.Fig.S1A_AnnotationSuccess.pdf", width = 4, height = 4)
+
+rm(summary_18S, summary_COI)
+
+```
+
+
+
+# 2. Data Transformation
 
 In this section the different data formats of the 2017 QU39 time series will be mutated into similar data shapes and transformed in such a way that the data types can be compared. To keep filtering parameters equal for all data types, a set of functions are first defined, that are then executed for all data sets. Comparisons are done both at species and at genus level.
 
-### Transforming Microscopy data:
+Key for data transformation is the index_RA function that is defined in ./Code/Functions.R. This function calculates eDNA-index and relative abundance for all taxa and samples. Read more details in the function description.
+
+## Transforming Microscopy data:
 
 Microscopy count data from integrated zooplankton net tows:
 
 ```{r}
-# Species
+# Species level
 Net_count_2017_index_species <- df_count_2017 %>% 
-  filter(Station %in% c("QU39"),
-         year(Date) == 2017) %>%
   mutate(Depth = DEPTH_STRT,
          Taxa = paste(Genus, Tax1, sep = " "),
          Abundance = Biomass,
          Sample = Key) %>%
   index_RA(Sample, Taxa, Abundance, Depth, Date)
 
-# Genus
+# Genus level
 Net_count_2017_index_genus <- df_count_2017 %>% 
-  filter(Station %in% c("QU39"),
-         year(Date) == 2017) %>%
   mutate(Depth = DEPTH_STRT,
          Taxa = Genus,
          Abundance = Biomass,
@@ -375,25 +408,29 @@ Net_count_2017_index_genus <- df_count_2017 %>%
   index_RA(Sample, Taxa, Abundance, Depth, Date)
 ```
 
-### Transforming DNA data:
+## Transforming DNA data:
 
 The DNA datasets are transformed identical to the microscopy data sets. Due to their similarity, a generalized function is first created, then executed for the data sets and taxonomic levels individually.
 
 ```{r}
+# Define wrapper function
 calculate_index <- function(data, taxrank, type) {
   
   data %>% 
+    # Filter Sample type
     filter(Type == type,
-           year(collection_date) == 2017,
+           # Only animals and annotated taxa are included
            Kingdom == "Animalia",
            str_detect({{ taxrank }}, "@", negate = TRUE)) %>%
     mutate(Taxa = {{ taxrank }},
            Depth = depth,
            Date = collection_date,
            Sample = library_ID) %>% 
+    # Execute the transformation
     index_RA(Sample, Taxa, Abundance, Depth, Date)
 }
 
+# Execute function for all subsets:
 Net_18S_2017_index_species <- calculate_index(Good_18S_data, Species, "Bulk_Zooplankton")
 Net_18S_2017_index_genus <- calculate_index(Good_18S_data, Genus, "Bulk_Zooplankton")
 eDNA_18S_2017_index_species <- calculate_index(Good_18S_data, Species, "Filtered_Water")
@@ -408,7 +445,8 @@ EtOH_COI_2017_index_species <- calculate_index(Good_COI_data, Species, "Zooplank
 EtOH_COI_2017_index_genus <- calculate_index(Good_COI_data, Genus, "Zooplankton_Preservative")
 
 ```
-Filter singeltons function
+
+Defining a function for filtering singletons. 
 
 ```{r}
 ListNoSing <- function(data, type = "DNA") {
@@ -421,42 +459,26 @@ ListNoSing <- function(data, type = "DNA") {
   filter(n>1) %>% 
   pull(Taxa)
 }
-
-
 ```
 
 
+# 3. Taxonomic Comparison
 
-# 3. Coverage comparison of taxonomic markers
+We compared the range of taxa that were captured with the Marine-Invertebrate COI primer vs the universal Eukaryote 18S primer, compared with microscopic zooplankton analysis.
 
+## 3.1 Euler plots
 
-### Eulerr plots:
-
-18S vs COI
+Comparing zooplankton net samples, 18S vs COI vs microscopy.
 
 ```{r}
+# Genus level comp.
 GenusListComp_1 <- list(
   `Net Microscopy` = ListNoSing(Net_count_2017_index_genus, "m"),
   `Net 18S` = ListNoSing(Net_18S_2017_index_genus),
   `Net COI` = ListNoSing(Net_COI_2017_index_genus)
 )
 
-SpeciesListComp_1 <- list(
-  `Net Microscopy` = ListNoSing(Net_count_2017_index_species, "m"),
-  `Net 18S` = ListNoSing(Net_18S_2017_index_species),
-  `Net COI` = ListNoSing(Net_COI_2017_index_species)
-)
-
-  
-pdf("Figure_output/euler_species.pdf", width = 3.5, height = 3.5)
-  SpeciesListComp_1 %>% 
-    fromList() %>% 
-    euler(shape = "circle") %>% 
-    plot(quantities = TRUE,
-        lty = 1:5)
-  dev.off()
-  
-pdf("Figure_output/euler_genus.pdf", width = 3.5, height = 3.5)
+pdf("Figure_output/Fig.2A_EulerGenusNet.pdf", width = 3.5, height = 3.5)
   set.seed(102)
   GenusListComp_1 %>% 
     fromList() %>% 
@@ -465,34 +487,38 @@ pdf("Figure_output/euler_genus.pdf", width = 3.5, height = 3.5)
          lty = 1:5)
   dev.off()
   
+  
+
+# Species level comp.
+SpeciesListComp_1 <- list(
+  `Net Microscopy` = ListNoSing(Net_count_2017_index_species, "m"),
+  `Net 18S` = ListNoSing(Net_18S_2017_index_species),
+  `Net COI` = ListNoSing(Net_COI_2017_index_species)
+)
+
+pdf("Figure_output/Fig.2B_EulerSpeciesNet.pdf", width = 3.5, height = 3.5)
+  SpeciesListComp_1 %>% 
+    fromList() %>% 
+    euler(shape = "circle") %>% 
+    plot(quantities = TRUE,
+        lty = 1:5)
+  dev.off()
+
+  
 
 ```
 
-Net vs water
+Comparing zooplankton net samples, with water samples. 
 
 ```{r}
+# 18S and microscopy
 ListComp_18S <- list(
   `Net Microscopy` = ListNoSing(Net_count_2017_index_genus, type = "m"),
   `Net 18S` = ListNoSing(Net_18S_2017_index_genus),
   `Water 18S` = ListNoSing(eDNA_18S_2017_index_genus)
 )
 
-ListComp_COI <- list(
-  `Net Microscopy` = ListNoSing(Net_count_2017_index_genus, type = "m"),
-  `Net COI` = ListNoSing(Net_COI_2017_index_genus),
-  `Water COI` = ListNoSing(eDNA_COI_2017_index_genus)
-)
-
-  
-pdf("Figure_output/euler_COI.pdf", width = 3.5, height = 3.5)
-  ListComp_COI %>% 
-    fromList() %>% 
-    euler(shape = "circle") %>% 
-    plot(quantities = TRUE,
-        lty = 1:5)
-  dev.off()
-  
-pdf("Figure_output/euler_18S.pdf", width = 3.5, height = 3.5)
+pdf("Figure_output/Fig.S2A_EulerCOI.pdf", width = 3.5, height = 3.5)
   set.seed(102)
   ListComp_18S %>% 
     fromList() %>% 
@@ -500,6 +526,24 @@ pdf("Figure_output/euler_18S.pdf", width = 3.5, height = 3.5)
     plot(quantities = TRUE,
          lty = 1:5)
   dev.off()
+
+# COI and microscopy
+ListComp_COI <- list(
+  `Net Microscopy` = ListNoSing(Net_count_2017_index_genus, type = "m"),
+  `Net COI` = ListNoSing(Net_COI_2017_index_genus),
+  `Water COI` = ListNoSing(eDNA_COI_2017_index_genus)
+)
+
+
+pdf("Figure_output/Fig.S2B_Euler18S.pdf", width = 3.5, height = 3.5)
+  ListComp_COI %>% 
+    fromList() %>% 
+    euler(shape = "circle") %>% 
+    plot(quantities = TRUE,
+        lty = 1:5)
+  dev.off()
+  
+
   
 rm(GenusListComp_1, SpeciesListComp_1, ListComp_18S, ListComp_COI)
 ```
@@ -510,15 +554,15 @@ rm(GenusListComp_1, SpeciesListComp_1, ListComp_18S, ListComp_COI)
 
 -   At genus level all methods align better. COI preforms better than 18S, and Net samples preform better than eDNA.
 
-## 3.3 Proportion of counted biomass detected by eDNA
+## 3.2 Proportion of detected biomass
 
 From the Euler diagram it appears as only a fraction of counted zooplankton is detected by the DNA methods. However, the diagram values all taxa equally and does not account for the relative importance of the taxa. The following code extracts the biomass proportion of counted taxa that are also detected by COI and 18S respectively.
 
-### Prepare data
 
-At Species Level:
+
 
 ```{r}
+{ ### Preparing the data at Species Level:
 Sum_per_species <- Net_count_2017_index_species %>% 
   filter(Taxa %in% ListNoSing(Net_count_2017_index_species, type = "m")) %>% 
   group_by(Taxa, Date) %>% 
@@ -556,12 +600,10 @@ fraction_species <-
   select(Date, `Bulk COI`, `Bulk 18S`, `Bulk COI & 18S`) %>% 
   pivot_longer(2:4, names_to = "Marker", values_to = "Proportion") %>% 
   mutate(Level = "Species level")
-```
+}
 
-At Genus Level:
 
-```{r}
-{ ##Species level biomass comparison##
+{ #Preparing the data at Genus Level:
 Sum_per_genus <- Net_count_2017_index_genus %>% 
   filter(Taxa %in% ListNoSing(Net_count_2017_index_genus, type = "m")) %>% 
   group_by(Taxa, Date) %>% 
@@ -601,11 +643,6 @@ fraction_genus <-
 }
 
 
-```
-
-### Plot
-
-```{r}
 # Combine and plot
 Biomass_fraction_plot <- bind_rows(fraction_genus, fraction_species) %>%
   #mutate(Level = factor(Level, levels = c("Species level", "Genus level"))) %>% 
@@ -617,10 +654,7 @@ Biomass_fraction_plot <- bind_rows(fraction_genus, fraction_species) %>%
         axis.title.x=element_blank())
 Biomass_fraction_plot
 
-ggsave("Figure_output/Biomass_fractions.pdf", width = 7, height = 4.5)
-
-
-
+ggsave("Figure_output/Fig.2CD_BiomassFraction.pdf", width = 7, height = 4.5)
 
 
 rm(Biomass_fraction_plot, Detected_18S, Detected_COI, fraction_genus,
@@ -631,7 +665,7 @@ rm(Biomass_fraction_plot, Detected_18S, Detected_COI, fraction_genus,
 
 ### Conclusions:
 
-1.  18S Cannot be used to identify taxa at species level, the gene is to conserved.
+1.  18S (Balzano) Ccannot be used to identify taxa at species level.
 
 2.  COI Covers around 38-75% of the ZP-net biomass at the specie level.
 
@@ -639,8 +673,7 @@ rm(Biomass_fraction_plot, Detected_18S, Detected_COI, fraction_genus,
 
 4.  Combining 18S and COI is slightly, but only marginally better than using COI alone.
 
-
-## 3.4. Exclusive taxa
+## 3.3 Exclusive taxa
 
 So the DNA methods combined targets 50-70% of zooplankton my biomass. Here we investigate the remaining genera, that remains un-targeted by the DNA methods. The Genera are ordered by relative biomass contribution.
 
@@ -704,7 +737,7 @@ bind_rows(microscopy_and_DNA, only_microscopy, only_COI, only_18S) %>%
   ylab("Relative abundance") +
   xlab("Genus")
 
-ggsave("Figure_output/Remaining_Taxa.pdf")
+ggsave("Figure_output/Fig.3_RemainingTaxa.pdf")
 
 
 rm(only_18S, only_COI, only_microscopy, microscopy_and_DNA)
@@ -724,59 +757,59 @@ rm(only_18S, only_COI, only_microscopy, microscopy_and_DNA)
 
 6.  eDNA of COI and 18S catches many different metazooan taxa not targeted by microscopy. Most of these taxa are benthic mollusks, worms, echinoderms or cnidarians.
 
+## Selection of taxa subsets. 
 
-# Selection of taxa.
-
-To allow for 
+To allow for plotting a subset of taxa, we define 
 
 ```{r}
-# At Genus Level
-
+# Vector for all genera
 GenusList <-
   Net_count_2017_index_genus %>%
   
-  # 1. Select taxa present in both microscopy and DNA NET samples
+  # Select taxa present in both microscopy and DNA NET samples
   filter(Taxa %in% ListNoSing(Net_count_2017_index_genus, "m"),
          Taxa %in% c(ListNoSing(Net_18S_2017_index_genus),
                      ListNoSing(Net_COI_2017_index_genus))) %>%
-  
-  # 3. Pull list
+  # Pull list
   pull(Taxa) %>% unique()
 
+
+# Vector for the top 27 abundant genera
 GenusList27 <-
   Net_count_2017_index_genus %>%
   
-  # 1. Select taxa present in both microscopy and DNA NET samples
+  # Select taxa present in both microscopy and DNA NET samples
   filter(Taxa %in% ListNoSing(Net_count_2017_index_genus, "m"), 
          Taxa %in% c(ListNoSing(Net_18S_2017_index_genus),
                      ListNoSing(Net_COI_2017_index_genus))) %>%
   
-  # 2. Select the 27 most abundant taxa
+  # Select the 27 most abundant taxa
   group_by(Taxa) %>% 
   summarize(RA = mean(RA)) %>% 
   arrange(-RA) %>% 
   mutate(count = 1:35) %>% 
   filter(count < 28) %>% 
   
-  # 3. Pull list
+  # Pull list
   pull(Taxa) %>% unique()
 
+# Vector for the top 15 abundant genera
 GenusList15 <-
   Net_count_2017_index_genus %>%
   
-  # 1. Select taxa present in both microscopy and DNA NET samples
+  # Select taxa present in both microscopy and DNA NET samples
   filter(Taxa %in% ListNoSing(Net_count_2017_index_genus, "m"),
          Taxa %in% c(ListNoSing(Net_18S_2017_index_genus),
                      ListNoSing(Net_COI_2017_index_genus))) %>%
   
-  # 2. Select the 27 most abundant taxa
+  # Select the 27 most abundant taxa
   group_by(Taxa) %>% 
   summarize(RA = mean(RA)) %>% 
   arrange(-RA) %>% 
   mutate(count = 1:35) %>% 
   filter(count < 16) %>%
   
-  # 3. Pull list
+  # Pull list
   pull(Taxa) %>% unique()
 
 
@@ -790,14 +823,9 @@ SpeciesList <-
 
 ```
 
-
-
-
-
 # 4. Performance of normalization methods
 
-
-Next we create a merged dataset for the different markers:
+We compare the preformace of normalization methods (Relative abundance RA, Pressence/Absence PA, and eDNA-index RA-index) for the Zooplankton net samples, to compare microscopy, 18S and COI analysis methods. To do this, we first construct a combined dataset:
 
 ```{r}
 Net_merged_data <-
@@ -806,31 +834,37 @@ Net_merged_data <-
     mutate(Net_count_2017_index_genus, marker = "Microscopy"),
     mutate(Net_COI_2017_index_genus, marker = "COI"),
     mutate(Net_18S_2017_index_genus, marker = "18S")) %>% 
+  
   # Calculate pressence / Absence from the relative abundance
   mutate(PA = ifelse(RA>0.001, 1, 0)) %>% 
+  
   # Remove unwanted taxa and columns
   filter(Taxa %in% GenusList) %>%
   select(Taxa, Date, Abundance, RA, RA_Index, PA, marker) %>% 
   
   # Wrangle the data set to make tidy for comparisons between Molecular/Microscopy
+  # Pivot transformation method long format. 
   pivot_longer(3:6, names_to = "Index_Type", values_to = "value") %>% 
-  pivot_wider(names_from = marker, values_from = value) %>% 
+  
+  # Pivot marker (18S, COI, microscopy) wide.
+  pivot_wider(names_from = marker, values_from = value) %>%
+  
+  # Make pairwise comparison: 18S-microscopy vs COI-microscopy
   pivot_longer(5:6, names_to = "Gene_Marker", values_to = "Molecular") %>% 
   select(Taxa, Date, Gene_Marker, Index_Type, Microscopy, Molecular) %>%
   
   # Remove samples with no matches Molecular/Mic
   filter(is.na(Molecular) == FALSE,
          is.na(Microscopy) == FALSE)
-
-
-
 ```
-
-
 
 ## 4.1 Multivariate comparison
 
-### Define functions for Multivariate analyses
+To evaluate the effect of analysis and normalization method on the merged datasets, a permutational multivariate analysis of variance (permanova) is conducted with 999 permutations based on the Bray-Curtis distances between samples in the community matrix using adonis from the vegan R package v. 2.6-4  (Oksanen et al., 2007). The results are visualized with 2-dimensional non-metric multidimensional scaling (NMDS) using the metaMDS function from the vegan package (allowing for 100 iterations). Mantel test was used to test for covariance between sample distance matrixes produced with microscopy vs molecular data using the mantel function in vegan with 9999 permutations.
+
+### Multivariate Function
+
+To be able to repeat multivariate statistics and plots, multivariate statistics are defined as a function: 
 
 ```{r}
 NMDS <- function(data = Net_merged_data, Marker = "COI", Type = "RA") {
@@ -903,9 +937,9 @@ NMDS <- function(data = Net_merged_data, Marker = "COI", Type = "RA") {
   bind_rows(Samples, Taxa)
   } # End NMDS Scores
   
-
   out <- NMDS_scores(mod) %>% 
     mutate(Gene_Marker = Marker, Index_Type = Type)
+  
   
   # Combine data set of statistical output
   stats <- tibble(Marker = Marker,
@@ -930,7 +964,7 @@ NMDS <- function(data = Net_merged_data, Marker = "COI", Type = "RA") {
 
 ```
 
-### Execute all NMDS
+### Execute for all datasets
 
 ```{r}
 mod1 <- NMDS(Marker = "COI", Type = "RA")
@@ -943,35 +977,52 @@ mod6 <- NMDS(Marker = "18S", Type = "RA_Index")
 
 bind_rows(
   mod1$Stats, mod2$Stats, mod3$Stats, mod4$Stats, mod5$Stats, mod6$Stats) %>% 
-  write_csv(file = "./Figure_output/multivariate_stats.csv")
+  write_csv(file = "./Figure_output/Tab.1_MultivariateStats.csv")
 
 ```
 
+### Plot NMDS
 
+We use the combined output from abuve to plot NMDS:
 
 ```{r}
+# Define a seasonal color scheme:
 seasonal_colors = c("#053061", "#3288BD", "#66C2A5", "#7FBC41",
                     "#A6D96A", "#FEE08B", "#FDAE61", "#F46D43",
                     "#D53E4F", "#9E0142", "#67001F", "#40004B")
 
 
-
+# Combine multivariate outputs:
 bind_rows(mod1$NMDS.scores, mod2$NMDS.scores, mod3$NMDS.scores,
           mod4$NMDS.scores, mod5$NMDS.scores, mod6$NMDS.scores) %>% 
   pivot_wider(names_from = Layer,
               values_from = c(NMDS1, NMDS2)) %>%
+  # Modify scales and factors
   mutate(Month = format(as.Date(Date), format="%m")) %>%
   mutate(Index_Type = ifelse(Index_Type == "RA_Index", "eDNA Index", Index_Type)) %>% 
   mutate(Index_Type = factor(Index_Type, levels = c("RA", "PA", "eDNA Index"))) %>% 
   mutate(Taxa = ifelse(Taxa %in% GenusList15, Taxa, "")) %>% 
   
+  # Plot
   ggplot(aes(NMDS1_Samples, NMDS2_Samples)) +
+  
+  # Taxa are represented as text
   geom_text(aes(NMDS1_Taxa, NMDS2_Taxa, label = Taxa),
             size = 3, colour = "grey", fontface = "italic") +
+  
+  # Dotted lines combine microscopy and DNA samples from the same date
   geom_line(aes(color = Month, group = Date), linetype = "dotted") +
+  
+  # Points represent each net.
   geom_point(aes(shape = Method, color = Month), size = 2) +
+  
+  # Eclipses for CI of the method (DNA vs Microscopy)
   stat_ellipse(aes(linetype = Method), size = 0.2) +
+  
+  # Facet Rows and Columns
   facet_grid(Index_Type~Gene_Marker, scales = "free") +
+  
+  # Esthetics
   theme_minimal_grid(12) +
   theme(aspect.ratio = 1,
         panel.border = element_rect(colour = "black", fill=NA),
@@ -980,22 +1031,19 @@ bind_rows(mod1$NMDS.scores, mod2$NMDS.scores, mod3$NMDS.scores,
   scale_color_manual(values = seasonal_colors) +
   scale_shape_manual(values=c(1, 16))
 
-ggsave("Figure_output/NMDS_both.pdf", width = 8, height = 10)
-
-
+ggsave("Figure_output/Fig.3_NMDS.pdf", width = 8, height = 10)
 
 
 ```
 
-### Permanova
-
 ## 4.2 Regression analyses
+
+linear regressions between microscopy and molecular data were modelled, using the lm function.
 
 ### Plot correlations
 
-This part is still to be developed. Correlations between the different data sets. One hypothesis is that the correlation is dependent on sequencing depth for different species.
 
-Both 18S and COI combined
+Both 18S and COI combined, Relative abundance vs eDNA-index
 
 ```{r}
 Net_merged_data %>% 
@@ -1013,15 +1061,15 @@ Net_merged_data %>%
   xlim(0,1)
 
 
-ggsave("Figure_output/regression_COI.pdf", width = 7, height = 4)
+ggsave("Figure_output/Fig.S3AB_Regression.pdf", width = 7, height = 4)
 
-Net_merged_data
 ```
 
 Calculate Rsq, P and Slope for all regressions:
 
 ```{r}
 #Create new tables for regression summary and calculate coefficients 
+# Empty table
 species_list <- data.frame(Taxa = unique(Net_merged_data$Taxa),
                            RA_Rsq = 0,
                            #I_Rsq = 0,
@@ -1035,10 +1083,7 @@ species_list <- data.frame(Taxa = unique(Net_merged_data$Taxa),
                            RA_slope = 0,
                            I_slope = 0)
 
-
-
-Net_merged_data
-
+# Fill the table for each pairwise comparison:
 for(i in 1:length(species_list$Taxa)){ #Start of loop
   RA <- Net_merged_data %>%
     filter(Taxa == species_list$Taxa[i],
@@ -1048,6 +1093,7 @@ for(i in 1:length(species_list$Taxa)){ #Start of loop
     filter(Taxa == species_list$Taxa[i],
            Index_Type == "RA_Index")
   
+  # Calculate the metrics:
   lm1 <- lm(sqrt(Microscopy) ~ sqrt(Molecular), data = RA)
   lm2 <- lm(sqrt(Microscopy) ~ sqrt(Molecular), data = RA_I)
   species_list$RA_Rsq[i] <- summary(lm1)$adj.r.squared
@@ -1062,13 +1108,17 @@ for(i in 1:length(species_list$Taxa)){ #Start of loop
 }
 
 species_list %>% 
-  write_csv("./Figure_output/regressions.csv")
+  write_csv("./Figure_output/Tab.2_Regressions.csv")
+```
 
+These taxa have significant correlations:
+```{r}
 species_list %>%
   filter(RA_p.val > 0.05) %>% 
   pull(Taxa)
 ```
 
+Whuile correlation coefficients are the same using RA and RA-index, the slope will differ. Here we plot the difference in slope between the two standardisation methods.
 ```{r}
 species_list %>%
   filter(RA_p.val<0.05) %>% 
@@ -1084,7 +1134,7 @@ species_list %>%
   theme(aspect.ratio = 1,
         panel.background = element_rect(colour = 'darkgrey'))
 
-ggsave("./Figure_output/slope_differences.pdf", width = 4, height = 5)
+ggsave("./Figure_output/Fig.S3C_SlopeDifferences.pdf", width = 4, height = 5)
 ```
 
 # 5. Temporal comparison of taxonomic markers
@@ -1092,13 +1142,18 @@ ggsave("./Figure_output/slope_differences.pdf", width = 4, height = 5)
 The aim of this section is to compare if seasonal patterns of RA_index overlap between the different markers and methods. Zooplankton net tows (Count, COI and 18S) that are depth integrated (only one sample per sampling date) are plotted differently from the eDNA samples (that has a depth resolution with several samples per sampling date).\
 Genus level comparison:
 
-RA_Index of zooplankton net samples, analysed with the three different markers:
+## Zooplankton Seasonality
+
+Plot seasonal trend of bulk zooplankton samples
 
 ```{r}
+
+# Combine the zooplankton datasets at genus level
 tmp <- bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
           mutate(Net_COI_2017_index_genus, marker = "COI"),
           mutate(Net_18S_2017_index_genus, marker = "18S")) 
 
+# Arrange the taxa according to there total annual biomass
 order <- tmp %>% 
   group_by(Taxa, marker) %>% 
   summarize(Abundance = sum(Abundance)) %>% 
@@ -1106,10 +1161,8 @@ order <- tmp %>%
   arrange(-Count) %>% 
   pull(Taxa)
 
-#Combine the three data sets
 tmp %>% 
-  
-  # Filter relevant taxa:
+  # Filter taxa (all) and order factors
   filter(Taxa %in% GenusList) %>%
   mutate(marker = factor(marker, levels = c("Count", "COI", "18S"))) %>%
   mutate(Taxa = factor(Taxa, levels = c(order))) %>% 
@@ -1118,6 +1171,8 @@ tmp %>%
   ggplot() +
   geom_line(aes(Date, RA_Index, color = marker, linetype = marker)) +
   facet_wrap(facets = "Taxa", ncol = 4) +
+  
+  # Esthetics
   theme_minimal_hgrid() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
         strip.text = element_text(face = "italic"),
@@ -1126,23 +1181,14 @@ tmp %>%
         aspect.ratio = 1/2.5) +
   scale_color_manual(values = c('#fec44f','#4daf4a','#377eb8'))
 
-ggsave("Figure_output/Seasonal_Bulk_Genus.pdf", width = 8, height = 10)
-
-
-
+ggsave("Figure_output/Fig.5_ZooplanktonSeasonality.pdf", width = 8, height = 10)
 ```
-
-
-
 
 RA_index of eDNA samples, the average of 18S and COI.
 
-```{r}
-mutate(eDNA_COI_2017_index_genus, marker = "COI")
-mutate(eDNA_18S_2017_index_genus, marker = "18S",
-                         Depth = as.character(Depth))
-```
+## Zooplankton Vertical Distribution
 
+Plot verical distribution of zooplankton over the season.
 
 ```{r}
 # Combine and merge COI and 18S eDNA components. Calculate mean of COI and 18S
@@ -1214,17 +1260,23 @@ data %>%  ggplot() +
         aspect.rtio = 1/2.5) +
   facet_wrap("Taxa", ncol = 3)
 
-ggsave("Figure_output/Seasonal_Comb_Genus_press.pdf", width = 7, height = 10)
+ggsave("Figure_output/Fig.6_VertivalSeasonCom.pdf", width = 7, height = 10)
 ```
 
 ## Species level comparison
 
+
+The robustness of the eDNA index transformation can be visualized by repeating the trends at species level, and also including other sample techniques.
+
 ```{r}
+
+# Combining datasets
 
 tmp <- bind_rows(mutate(Net_count_2017_index_species, marker = "Count"),
           mutate(Net_COI_2017_index_species, marker = "COI_bulk"),
           mutate(EtOH_COI_2017_index_species, marker = "COI_sup"))
 
+# Order by biomass
 order <- tmp %>% 
   group_by(Taxa, marker) %>% 
   summarize(Abundance = sum(Abundance)) %>% 
@@ -1232,6 +1284,7 @@ order <- tmp %>%
   arrange(-Count) %>% 
   pull(Taxa)
 
+# Arrange factors and plot. 
 tmp %>%
   filter(Taxa %in% SpeciesList) %>%
   mutate(marker = factor(marker, levels = c("Count", "COI_bulk", "COI_sup"))) %>%
@@ -1239,6 +1292,8 @@ tmp %>%
   ggplot() +
   geom_line(aes(Date, RA_Index, color = marker,  linetype = marker)) +
   facet_wrap(facets = "Taxa", ncol = 4) +
+  
+  # Esthetics
   theme_minimal_hgrid(8) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
         strip.text = element_text(face = "italic"),
@@ -1248,12 +1303,13 @@ tmp %>%
         legend.position = "none") +
   scale_color_manual(values = c('#fec44f','#4daf4a',"cyan"))
 
-ggsave("Figure_output/Seasonal_Bulk_Species.pdf", width = 10, height = 7)
+ggsave("Figure_output/Supp.Fig.S5_SeasonalBulkSpecies.pdf", width = 10, height = 7)
 
 ```
 
+## Data ammount
 
-# Data amount
+The ammount of sequences per taxa can hint at the reproducibility of the seasonal trends of the zooplankton. Species with low data may have less reliable results.
 
 ```{r}
   # Combine data sets
@@ -1261,20 +1317,19 @@ ggsave("Figure_output/Seasonal_Bulk_Species.pdf", width = 10, height = 7)
     mutate(Net_count_2017_index_genus, marker = "Microscopy"),
     mutate(Net_COI_2017_index_genus, marker = "COI"),
     mutate(Net_18S_2017_index_genus, marker = "18S")) %>% 
-  # Calculate pressence / Absence from the relative abundance
-  # Remove unwanted taxa and columns
+
   filter(Taxa %in% GenusList) %>%
   select(Taxa, Date, Abundance, marker) %>%
   group_by(Taxa, marker) %>%
   summarise(Abundance = sum(Abundance)) %>% 
   pivot_wider(names_from = "marker", values_from = "Abundance") %>%
   arrange(-Microscopy) %>% 
-  write_csv("Figure_output/data_ammount.csv")
+  write_csv("Figure_output/Suppl.Tab.S4_DataAmmount.csv")
 ```
+# 6. Session info
 
-
+These packages and versions were used in this script. 
 
 ```{r}
 sessionInfo()
 ```
-
