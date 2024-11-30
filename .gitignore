@@ -4,6 +4,7 @@ Data_output/
 Figure_output
 Workfolder/
 Graphics/
+Data/
 
 # History files
 .Rhistory
