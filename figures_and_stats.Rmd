@@ -6,8 +6,7 @@ title: "Comparing Methods"
 
 **Andreas Novotny 2024**
 
-This script is used to produce all graphical and statistical output for the manuscript and its supplementary material. Before starting this script, run all steps in the "prepare_datasets.Rmd"
-
+This script is used to produce all graphical and statistical output for the manuscript and its supplementary material.
 
 These packages are required for this script.
 
@@ -32,9 +31,84 @@ library(ggnewscale) # Multiple scales on one plot
 
 # Statistical analyses
 library(vegan)
+
+# Import DATA From Bioinformatic Pipeline
+#system2("cp", args = c(
+#  "../CoastalBCdata/Data_output/To_ZoopMethodsComp/*",
+#  "Data/"
+#))
 ```
 
 
+## Read in the datasets that are supplemented with this package:
+
+COI data :
+```{r}
+metadata_COI <- read_csv("Data/Sequence_Metadata_COI_QU39_2017.csv")
+ASV_COI <- read_csv("Data/ASV_COI_MZGdb_QU39_2017.csv")
+
+All_COI_data <- ASV_COI %>%
+  pivot_longer(cols = !1:13, names_to = "library_ID", values_to = "Abundance") %>% 
+  full_join(metadata_COI)
+
+rm(metadata_COI, ASV_COI)
+```
+
+18S data:
+```{r}
+metadata_18S <- read_csv("Data/Sequence_Metadata_18S_QU39_2017.csv")
+ASV_18S <- read_csv("Data/ASV_18S_MZGdb_QU39_2017.csv")
+
+All_18S_data <- ASV_18S %>%
+  pivot_longer(cols = !1:13, names_to = "library_ID", values_to = "Abundance") %>% 
+  full_join(metadata_18S)
+
+rm(metadata_18S, ASV_18S)
+```
+Modify metadata to account for different sample types:
+
+```{r}
+# Get levels for collection method:
+All_COI_data %>% 
+  pull(collection_method) %>% unique()
+
+Filtered_Water <- "Sterivex Seawater filtration: https://dx.doi.org/10.17504/protocols.io.rm7vzjxrrlx1/v1"
+Bulk_Zooplankton <- "Vertical zooplankton net tow, preserved in 99 percent ethanol"
+Zooplankton_Preservative <- "Vertical zooplankton net tow, preserved in 99 percent ethanol. Etnahol subsampling: https://dx.doi.org/10.17504/protocols.io.j8nlk888wl5r/v1"
+
+All_COI_data <- All_COI_data %>% 
+  mutate(Type = ifelse(
+    collection_method == Filtered_Water,
+    "Filtered_Water",
+    ifelse(
+      collection_method == Bulk_Zooplankton,
+      "Bulk_Zooplankton",
+      "Zooplankton_Preservative")
+  ))
+
+All_18S_data <- All_18S_data %>% 
+  mutate(Type = ifelse(
+    collection_method == Filtered_Water,
+    "Filtered_Water",
+    ifelse(
+      collection_method == Bulk_Zooplankton,
+      "Bulk_Zooplankton",
+      "Zooplankton_Preservative")
+  ))
+```
+
+
+
+
+
+
+
+Microscopy data:
+```{r}
+df_count_2017 <- read_csv("Data/Zooplankton_QU39_2017.csv")
+```
+
+## Make map for sampling location at QU39
 
 ```{r}
 # 1. Draw inner map with points for stations
@@ -80,127 +154,65 @@ final_map <- inner + inset_element(outer, 0.5, 0.5, 1, 1)
 ggsave("Figure_output/station_map.pdf", final_map, width = 4, height = 4)
 
 final_map
+
+rm(inner, outer, insert_box, pin)
 ```
 
 
-# 1. Sequencing dept and negative controls.
+# 1. Sequencing dept
 
-In this section, we have a look at sequenced negative controls for the 18S and the COI libraries, and remove samples that have sequence depth lower than the negative controls.\
-Here we also produce statistics for annotation levels and read success.\
-\
-Plotting sequencing depth and removing low libraries for COI:
-
+Filter libraries with low sequence depth for 18S data
 
 ```{r}
-# Plot ranked sequencing depth with threshold line
-All_COI_data %>%
-  filter(Site_ID == "QU39" | is.na(Line_out_depth) == TRUE) %>%
-  filter(year(Sample_date) == 2017 | is.na(Line_out_depth) == TRUE) %>% 
-  seq_depth_plot() +
-  theme_cowplot(12) +
-  theme(aspect.ratio = 1,
-        strip.background =element_blank()) +
-  geom_abline(intercept = 10000, linetype = 4)
-ggsave("Figure_output/Sequencing_Depth_COI.pdf", width = 7, height = 4.5)
-
-All_COI_data %>% 
-  filter(Site_ID == "QU39" | is.na(Line_out_depth) == TRUE) %>%
-  filter(year(Sample_date) == 2017 | is.na(Line_out_depth) == TRUE) %>% 
-  group_by(Library_ID, Sample_date, Site_ID, Line_out_depth) %>% 
-  summarise(Abundance = sum(Abundance))
-
-
-
-# Filter out libraries under threshold line
+# Filter out libraries under threshold line of 10,000 reads per library
 Good_COI_data <- All_COI_data %>% 
-  group_by(Library_ID) %>%
-  filter(Site_ID == "QU39") %>% 
+  group_by(library_ID) %>%
   filter(sum(Abundance)>10000) %>% 
   ungroup()
 
-
-# Investigate Negative controls:
-All_18S_data %>% 
-  filter(is.na(Line_out_depth) == TRUE) %>%
-  filter(is.na(Fastq_ID) == FALSE) %>% 
-  filter(Abundance > 0) %>% 
-  group_by(Fastq_ID, Sample_type, Species) %>% 
-  summarise(Abundance = sum(Abundance)) %>% pivot_wider(names_from = Species, values_from = Abundance) 
-  
-```
-None of the blanks passed the quality control for a successful library during sample processing, but we still sequenced 3 field blanks, and 4 PCR blanks for each marker. None of these sequencing libraries passed the quality filtering for a true sample. However, two of the negative controls for COI, and 1 of the negative controls for 18S had sequences that got annotated to Genus level. In the COI controls sequences from Paracalanus (11), Pseudocalanus (63), Acartia (5), Eucalanus (4584) Nanomia (24) were detected. In the negative controls for 18S, sequences from Calanus (149), Erenna (32), and Metridia (144) were detected. Due to the minimal library sizes resulting from sequencing negative controls, cross-contamination was deemed unlikely to have a significant impact on sequencing results.
-
-```{r}
 print("Median COI library size:")
-Good_COI_data %>%filter(Site_ID == "QU39" | is.na(Line_out_depth) == TRUE) %>%
-  filter(year(Sample_date) == 2017 | is.na(Line_out_depth) == TRUE) %>% 
-  group_by(Library_ID) %>% 
+Good_COI_data %>%
+  group_by(library_ID) %>% 
   summarise(SeqDepth = sum(Abundance)) %>%
   pull(SeqDepth) %>% median
 
 print("Number of final COI libraries:")
 Good_COI_data %>% 
-  pull(Library_ID) %>% unique %>%  length
+  pull(library_ID) %>% unique %>% length
 
 
 #### NOTE: Taxonomic correction of the subgenus Ditrichocorycaeus, not yet accepted.
 Good_COI_data <- Good_COI_data %>%
   mutate(Genus = ifelse(Genus == "Ditrichocorycaeus", "Corycaeus", Genus),
          Species = ifelse(Species == "Ditrichocorycaeus anglicus","Corycaeus anglicus", Species))
-```
 
-Plotting sequencing depth and removing low libraries for 18S:
+```
+Filter libraries with low sequence depth for 18S data
 
 ```{r}
-# Plot ranked sequencing depth
-All_18S_data %>%
-  filter(Site_ID == "QU39" | is.na(Line_out_depth) == TRUE) %>%
-  filter(year(Sample_date) == 2017 | is.na(Line_out_depth) == TRUE) %>% 
-  seq_depth_plot() +
-  theme_cowplot(12) +
-  theme(aspect.ratio = 1,
-        strip.background =element_blank()) +
-  geom_abline(intercept = 10000, linetype = 4)
-ggsave("Figure_output/Sequencing_Depth_18S.pdf" , width = 7, height = 4.5)
 
 # Filter out libraries with low read counts.
 Good_18S_data <- All_18S_data %>% 
-  group_by(Library_ID) %>% 
+  group_by(library_ID) %>% 
   filter(sum(Abundance)>10000) %>% 
   ungroup()
 
-Good_18S_data %>% 
-  group_by(Hakai_ID) %>% 
-  summarise(sum(Abundance))
 
 print("Median 18S library size:")
 Good_18S_data %>% 
-  group_by(Library_ID) %>%
-  filter(Site_ID == "QU39") %>% 
+  group_by(library_ID) %>%
   summarise(SeqDepth = sum(Abundance)) %>%
-  pull(SeqDepth) %>%median
+  pull(SeqDepth) %>% median
 
 print("Number of final 18S libraries:")
 Good_18S_data %>% 
-  pull(Library_ID) %>% unique %>%  length
+  pull(library_ID) %>% unique %>%  length
 
 #### NOTE: Taxonomic correction of the subgenus Ditrichocorycaeus, not yet accepted.
 Good_18S_data <- Good_18S_data %>%
   mutate(Genus = ifelse(Genus == "Ditrichocorycaeus", "Corycaeus", Genus),
          Species = ifelse(Species == "Ditrichocorycaeus anglicus","Corycaeus anglicus", Species))
-
-# Investigate Negative controls:
-
-All_18S_data %>% 
-  filter(is.na(Line_out_depth) == TRUE) %>% 
-  filter(Abundance > 0) %>% 
-  group_by(Fastq_ID, Sample_type, Species) %>% 
-  summarise(Abundance = sum(Abundance)) %>% pivot_wider(names_from = Species, values_from = Abundance)
 ```
-
-
-
-
 
 ## Annotation success
 
@@ -209,42 +221,38 @@ This first plot shows the relative abundance of Metazooans, compared to other or
 ```{r}
 # Calculate % metazoans for all samples in 18S data
 summary_18S <- Good_18S_data %>% 
-  filter(Site_ID == "QU39",
-         year(Sample_date) == 2017) %>% 
   mutate(Abundance = ifelse(is.na(Abundance), 0, Abundance)) %>% 
-  mutate(Sampling_depth = ifelse(Project_name == "Vertical", "230-0", Line_out_depth)) %>% 
-  group_by(Sample_date, Sampling_depth, Kingdom, Library_ID) %>% 
+  mutate(depth = ifelse(Type == "Bulk_Zooplankton", "230-0", depth)) %>% 
+  group_by(collection_date, Kingdom, library_ID, depth) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
-  group_by(Sample_date, Sampling_depth, Library_ID) %>% 
+  group_by(collection_date, depth, library_ID) %>% 
   reframe(RA = Abundance/sum(Abundance), Kingdom, Abundance) %>%
-  group_by(Library_ID) %>% 
+  group_by(library_ID) %>% 
   filter(sum(Abundance)>0) %>% 
   mutate(Marker = "18S")
 
+
 # Calculate % metazoans for all samples in COI data
 summary_COI <- Good_COI_data %>% 
-  filter(Site_ID == "QU39",
-         year(Sample_date) == 2017) %>% 
   mutate(Abundance = ifelse(is.na(Abundance), 0, Abundance)) %>% 
-  mutate(Sampling_depth = ifelse(Project_name == "Vertical", "230-0", Line_out_depth)) %>%
-  filter(is.na(Sampling_depth)==FALSE) %>% 
-  group_by(Sample_date, Sampling_depth, Kingdom, Library_ID) %>% 
+  mutate(depth = ifelse(Type == "Bulk_Zooplankton", "230-0", depth)) %>% 
+  group_by(collection_date, depth, Kingdom, library_ID) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
-  group_by(Sample_date, Sampling_depth, Library_ID) %>% 
+  group_by(collection_date, depth, library_ID) %>% 
   reframe(RA = Abundance/sum(Abundance), Kingdom, Abundance) %>%
-  group_by(Library_ID) %>% 
+  group_by(library_ID) %>% 
   filter(sum(Abundance)>0) %>% 
   mutate(Marker = "COI")
 
 # Merge and plot
 bind_rows(summary_18S, summary_COI) %>%
   filter(Kingdom == "Animalia") %>% 
-  mutate(Sampling_depth = ifelse(Sampling_depth == "230", "260", Sampling_depth)) %>% 
-  mutate(Sampling_depth = factor(Sampling_depth,
+  mutate(depth = ifelse(depth == "230", "260", depth)) %>% 
+  mutate(depth = factor(depth,
                                    levels= c("0", "5", "30",
                                              "100", "260", "230-0"))) %>%
   ggplot() +
-  geom_boxplot(aes(Sampling_depth, RA, color = Marker)) +
+  geom_boxplot(aes(depth, RA, color = Marker)) +
   theme_cowplot(12) +
   theme(aspect.ratio = 1,
         strip.background =element_blank()) +
@@ -252,136 +260,90 @@ bind_rows(summary_18S, summary_COI) %>%
 
 ggsave("Figure_output/Metazoan_reads.pdf", width = 4, height = 4)
 
+rm(summary_18S, summary_COI)
+
 ```
 
 
 ### Sample amount and success
 
+Zooplankton Net Samples
+
 ```{r}
 tmp_18S <- Good_18S_data %>%
-  filter(Site_ID == "QU39",
-         year(Sample_date) == 2017) %>%
-  group_by(Fastq_ID, Hakai_ID, Sample_date, Project_name, Line_out_depth, Sample_type) %>% 
+  group_by(library_ID, source_material_id, collection_date, Type, depth) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
-  filter(Sample_type == "Zp_Net") %>% 
+  filter(Type == "Bulk_Zooplankton") %>% 
   ungroup() %>% 
-  select(Sample_date, Abundance) %>% 
+  select(collection_date, Abundance) %>% 
   mutate(Marker = "18S_Sequences")
 
 tmp_COI <- Good_COI_data %>%
-  filter(Site_ID == "QU39",
-         year(Sample_date) == 2017) %>%
-  group_by(Fastq_ID, Hakai_ID, Sample_date, Project_name, Line_out_depth, Sample_type) %>% 
+  group_by(library_ID, source_material_id, collection_date, Type, depth) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
-  filter(Sample_type == "Zp_Net") %>% 
+  filter(Type == "Bulk_Zooplankton") %>% 
   ungroup() %>% 
-  select(Sample_date, Abundance) %>%
+  select(collection_date, Abundance) %>% 
   mutate(Marker = "COI_Sequences")
 
 tmp_COI_EtOH <- Good_COI_data %>%
-  filter(Site_ID == "QU39",
-         year(Sample_date) == 2017) %>%
-  group_by(Fastq_ID, Hakai_ID, Sample_date, Project_name, Line_out_depth, Sample_type) %>% 
+  group_by(library_ID, source_material_id, collection_date, Type, depth) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
-  filter(Sample_type == "Zp_Net_Sup") %>% 
+  filter(Type == "Zooplankton_Preservative") %>% 
   ungroup() %>% 
-  select(Sample_date, Abundance) %>%
+  select(collection_date, Abundance) %>% 
   mutate(Marker = "COI_Sequences_(Sup)")
 
 
 tmp_mic <- df_count_2017 %>%
-  filter(Station == "QU39",
-         year(Date) == 2017) %>% 
   group_by(Sample_ID, Station, Date, STN_TIME) %>% 
   summarise(Biomass = sum(Biomass, na.rm = TRUE)) %>%
   ungroup() %>% 
-  select(Sample_date = Date, Abundance = Biomass) %>% 
+  select(collection_date = Date, Abundance = Biomass) %>% 
   mutate(Marker = "Microscopy_Biomass")
 
 
 bind_rows(tmp_mic, tmp_18S, tmp_COI, tmp_COI_EtOH) %>% 
   pivot_wider(names_from = Marker, values_from = Abundance) %>% 
-  arrange(Sample_date) %>% 
+  arrange(collection_date) %>% 
   write_csv(file = "Data_output/Sample_Information_ZP_nets.csv")
+  
+rm(tmp_mic, tmp_18S, tmp_COI, tmp_COI_EtOH)
 ```
 
-
+Water Samples (Sequences)
 
 ```{r}
 tmp_18S <- Good_18S_data %>%
-  filter(Site_ID == "QU39",
-         year(Sample_date) == 2017) %>%
-  group_by(Fastq_ID, Hakai_ID, Sample_date, Project_name, Line_out_depth, Sample_type) %>% 
+  group_by(library_ID, source_material_id, collection_date, Type, depth) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
-  filter(Sample_type == "DNA") %>% 
+  filter(Type == "Filtered_Water") %>% 
   ungroup() %>% 
-  select(Sample_date, Abundance, Line_out_depth) %>% 
+  select(collection_date, Abundance, depth) %>% 
   mutate(Marker = "18S_Sequences")
 
 tmp_COI <- Good_COI_data %>%
-  filter(Site_ID == "QU39",
-         year(Sample_date) == 2017) %>%
-  group_by(Fastq_ID, Hakai_ID, Sample_date, Project_name, Line_out_depth, Sample_type) %>% 
+  group_by(library_ID, source_material_id, collection_date, Type, depth) %>% 
   summarise(Abundance = sum(Abundance)) %>% 
-  filter(Sample_type == "eDNA") %>% 
+  filter(Type == "Filtered_Water") %>% 
   ungroup() %>% 
-  select(Sample_date, Abundance, Line_out_depth) %>%
+  select(collection_date, Abundance, depth) %>% 
   mutate(Marker = "COI_Sequences")
-tmp_COI
-
-tmp_18S
 
 
 bind_rows(tmp_18S, tmp_COI) %>%
-  group_by(Sample_date, Line_out_depth, Marker) %>% 
+  group_by(collection_date, depth, Marker) %>% 
   summarise(Abundance = sum(Abundance, na.rm = TRUE)) %>% 
   pivot_wider(names_from = Marker, values_from = Abundance) %>% 
-  arrange(Sample_date, as.numeric(Line_out_depth)) %>%
+  arrange(collection_date, as.numeric(depth)) %>%
   mutate(`Sequences COI/18S` = paste(COI_Sequences, `18S_Sequences`, sep = " / ")) %>% 
-  select(Sample_date, Line_out_depth, `Sequences COI/18S`) %>% 
-  pivot_wider(names_from = Line_out_depth, values_from = `Sequences COI/18S`) %>% 
+  select(collection_date, depth, `Sequences COI/18S`) %>% 
+  pivot_wider(names_from = depth, values_from = `Sequences COI/18S`) %>% 
   write_csv2(file = "Data_output/Sample_Information_Water.csv")
+
+rm(tmp_mic, tmp_18S, tmp_COI, tmp_COI_EtOH)
 ```
 
-
-
-
-This plot shows the distribution of annotation success for COI and 18S data, for all taxonomic levels in the MetaZoogene database. 
-```{r}
-success_18S <- Good_18S_data %>% 
-  mutate(Annotation_level = as.numeric(Annotation_level)) %>% 
-  mutate(ASV = paste(MiSeq_library, ASV, sep = "_")) %>% 
-  group_by(ASV) %>% 
-  summarise(Annotation_level = mean(Annotation_level)) %>% 
-  group_by(Annotation_level) %>% 
-  summarise(n = n()) %>% 
-  mutate(marker = "18S") %>% 
-  mutate(n = n/sum(n))
-
-success_COI <- Good_COI_data %>% 
-  mutate(Annotation_level = as.numeric(Annotation_level)) %>% 
-  mutate(ASV = paste(MiSeq_library, ASV, sep = "_")) %>% 
-  group_by(ASV) %>% 
-  summarise(Annotation_level = mean(Annotation_level)) %>% 
-  group_by(Annotation_level) %>% 
-  summarise(n = n()) %>% 
-  mutate(marker = "COI") %>% 
-  mutate(n = n/sum(n))
-success_COI
-
-bind_rows(success_18S, success_COI) %>% 
-  ggplot() +
-  geom_bar(aes(Annotation_level, n, fill = marker),
-           stat = "identity", position = "dodge") +
-  theme_cowplot(12) +
-  theme(aspect.ratio = 1,
-        strip.background =element_blank()) +
-  scale_fill_manual(values = c('#377eb8','#4daf4a'))
-ggsave("Figure_output/Annotation_Depth.pdf", width = 4, height = 4)
-
-```
-
-***RESULT***: COI has a notably higher percentage of Metazooan reads annotated, compared to 18S. Hoverver, this distinction is only present for water filers and not for barcoded zooplankton net samples.
 
 # 2. Subset and calculate eDNA indexes of data sets:
 
@@ -418,32 +380,32 @@ Net_count_2017_index_genus <- df_count_2017 %>%
 The DNA datasets are transformed identical to the microscopy data sets. Due to their similarity, a generalized function is first created, then executed for the data sets and taxonomic levels individually.
 
 ```{r}
-calculate_index <- function(data, taxrank, project) {
+calculate_index <- function(data, taxrank, type) {
   
   data %>% 
-    filter(Project_name == project,
-           year(Sample_date) == 2017,
+    filter(Type == type,
+           year(collection_date) == 2017,
            Kingdom == "Animalia",
            str_detect({{ taxrank }}, "@", negate = TRUE)) %>%
     mutate(Taxa = {{ taxrank }},
-           Depth = Line_out_depth,
-           Date = Sample_date,
-           Sample = Library_ID) %>% 
+           Depth = depth,
+           Date = collection_date,
+           Sample = library_ID) %>% 
     index_RA(Sample, Taxa, Abundance, Depth, Date)
 }
 
-Net_18S_2017_index_species <- calculate_index(Good_18S_data, Species, "Vertical")
-Net_18S_2017_index_genus <- calculate_index(Good_18S_data, Genus, "Vertical")
-eDNA_18S_2017_index_species <- calculate_index(Good_18S_data, Species, "QU39")
-eDNA_18S_2017_index_genus <- calculate_index(Good_18S_data, Genus, "QU39")
+Net_18S_2017_index_species <- calculate_index(Good_18S_data, Species, "Bulk_Zooplankton")
+Net_18S_2017_index_genus <- calculate_index(Good_18S_data, Genus, "Bulk_Zooplankton")
+eDNA_18S_2017_index_species <- calculate_index(Good_18S_data, Species, "Filtered_Water")
+eDNA_18S_2017_index_genus <- calculate_index(Good_18S_data, Genus, "Filtered_Water")
 
-Net_COI_2017_index_species <- calculate_index(Good_COI_data, Species, "Vertical")
-Net_COI_2017_index_genus <- calculate_index(Good_COI_data, Genus, "Vertical")
-eDNA_COI_2017_index_species <- calculate_index(Good_COI_data, Species, "QU39")
-eDNA_COI_2017_index_genus <- calculate_index(Good_COI_data, Genus, "QU39")
+Net_COI_2017_index_species <- calculate_index(Good_COI_data, Species, "Bulk_Zooplankton")
+Net_COI_2017_index_genus <- calculate_index(Good_COI_data, Genus, "Bulk_Zooplankton")
+eDNA_COI_2017_index_species <- calculate_index(Good_COI_data, Species, "Filtered_Water")
+eDNA_COI_2017_index_genus <- calculate_index(Good_COI_data, Genus, "Filtered_Water")
 
-EtOH_COI_2017_index_species <- calculate_index(Good_COI_data, Species, "EtOH_sup")
-EtOH_COI_2017_index_genus <- calculate_index(Good_COI_data, Genus, "EtOH_sup")
+EtOH_COI_2017_index_species <- calculate_index(Good_COI_data, Species, "Zooplankton_Preservative")
+EtOH_COI_2017_index_genus <- calculate_index(Good_COI_data, Genus, "Zooplankton_Preservative")
 
 ```
 Filter singeltons function
@@ -458,7 +420,6 @@ ListNoSing <- function(data, type = "DNA") {
   summarise(n=n()) %>% 
   filter(n>1) %>% 
   pull(Taxa)
-  
 }
 
 
@@ -504,25 +465,7 @@ pdf("Figure_output/euler_genus.pdf", width = 3.5, height = 3.5)
          lty = 1:5)
   dev.off()
   
-  
-Net_count_2017_index_genus %>%
-  filter(Abundance > 0) %>% 
-  group_by(Taxa) %>% 
-  summarise(Abundance = sum(Abundance),
-            count = n()) %>% 
-  arrange(Abundance) %>% 
-  ggplot() +
-  geom_point(aes(log(Abundance), count))
-  
-  
-Net_COI_2017_index_genus %>% 
-    filter(Abundance > 0) %>% 
-  group_by(Taxa) %>% 
-  summarise(Abundance = sum(Abundance),
-            count = n()) %>% 
-  arrange(Abundance) %>% 
-  ggplot() +
-  geom_point(aes(log(Abundance), count))
+
 ```
 
 Net vs water
@@ -557,6 +500,8 @@ pdf("Figure_output/euler_18S.pdf", width = 3.5, height = 3.5)
     plot(quantities = TRUE,
          lty = 1:5)
   dev.off()
+  
+rm(GenusListComp_1, SpeciesListComp_1, ListComp_18S, ListComp_COI)
 ```
 
 ### Conclusions:
@@ -675,10 +620,12 @@ Biomass_fraction_plot
 ggsave("Figure_output/Biomass_fractions.pdf", width = 7, height = 4.5)
 
 
-# Mean Results
-bind_rows(fraction_genus, fraction_species) %>% 
-  group_by(Marker, Level) %>% 
-  summarize(Proportion = mean(Proportion))
+
+
+
+rm(Biomass_fraction_plot, Detected_18S, Detected_COI, fraction_genus,
+   fraction_species, Sum_per_day, Sum_per_day_all,
+   Sum_per_species, Sum_per_genus)
 
 ```
 
@@ -758,13 +705,9 @@ bind_rows(microscopy_and_DNA, only_microscopy, only_COI, only_18S) %>%
   xlab("Genus")
 
 ggsave("Figure_output/Remaining_Taxa.pdf")
-```
 
 
-```{r}
-
-only_18S %>% 
-  summarize(RA = sum(RA))
+rm(only_18S, only_COI, only_microscopy, microscopy_and_DNA)
 ```
 
 ## Conclusions
@@ -837,10 +780,6 @@ GenusList15 <-
   pull(Taxa) %>% unique()
 
 
-
-
-GenusList27
-
 # At Species Level
 SpeciesList <-
   Net_count_2017_index_species %>% 
@@ -849,9 +788,6 @@ SpeciesList <-
                      ListNoSing(eDNA_COI_2017_index_species))) %>% 
   pull(Taxa) %>% unique()
 
-GenusList
-
-SpeciesList
 ```
 
 
@@ -1202,10 +1138,16 @@ ggsave("Figure_output/Seasonal_Bulk_Genus.pdf", width = 8, height = 10)
 RA_index of eDNA samples, the average of 18S and COI.
 
 ```{r}
+mutate(eDNA_COI_2017_index_genus, marker = "COI")
+mutate(eDNA_18S_2017_index_genus, marker = "18S",
+                         Depth = as.character(Depth))
+```
+
+
+```{r}
 # Combine and merge COI and 18S eDNA components. Calculate mean of COI and 18S
 eDNA <- bind_rows(mutate(eDNA_COI_2017_index_genus, marker = "COI"),
-                  mutate(eDNA_18S_2017_index_genus, marker = "18S",
-                         Depth = as.character(Depth))) %>% 
+                  mutate(eDNA_18S_2017_index_genus, marker = "18S")) %>% 
   group_by(Taxa, Date, Depth) %>% 
   summarize(RA_Index = mean(RA_Index),
             Abundance = mean(Abundance),
@@ -1216,15 +1158,14 @@ data <-  eDNA %>%
   bind_rows(mutate(Net_count_2017_index_genus, marker = "Count"),
              mutate(Net_COI_2017_index_genus, marker = "COI"),
              mutate(Net_18S_2017_index_genus, marker = "18S")) %>% 
-
   filter(Taxa %in% GenusList,
          Taxa %in% pull(eDNA, Taxa)) %>% 
+  mutate(Depth = as.character(Depth)) %>% 
   
   # Modify the parameter shown on the categorical Y axis. That is depth for eDNA samples and Marker for Net samples". 
   mutate(y = ifelse(marker == "eDNA", Depth, marker)) %>% 
   mutate(y = factor(y, levels = rev(c("Count", "COI", "18S", "0", "5", "30", "100", "260")))) %>% 
   mutate(Taxa = factor(Taxa, levels = order))
-
 
 data %>%  ggplot() +
   
@@ -1274,11 +1215,6 @@ data %>%  ggplot() +
   facet_wrap("Taxa", ncol = 3)
 
 ggsave("Figure_output/Seasonal_Comb_Genus_press.pdf", width = 7, height = 10)
-
-
-  
-library(viridis)
-
 ```
 
 ## Species level comparison
@@ -1314,8 +1250,6 @@ tmp %>%
 
 ggsave("Figure_output/Seasonal_Bulk_Species.pdf", width = 10, height = 7)
 
-
-SpeciesList
 ```
 
 
